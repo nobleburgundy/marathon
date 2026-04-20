@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Marathon Planner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Faster+One&family=Bebas+Neue&family=Yanone+Kaffeesatz:wght@400;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Loading overlay (calendar search) ─────────────────────────────────── -->
+  <div id="loading-overlay" class="hidden">
+    <p id="loading-text">Checking calendar…</p>
+  </div>
+
+  <!-- ── Top bar ─────────────────────────────────────────────────────────── -->
+  <div class="top-bar">
+    <div class="inner top-bar-row">
+      <span class="top-bar-title">Marathon Planner</span>
+      <span class="top-bar-sub">Google Calendar</span>
+    </div>
+  </div>
+
+  <!-- ── Scrollable content ─────────────────────────────────────────────── -->
+  <div class="scroll-area">
+    <div class="inner scroll-inner">
+
+      <!-- Global error -->
+      <div id="error-msg" class="hidden"></div>
+
+      <!-- ── Step 1: Sign in ──────────────────────────────────────────── -->
+      <div id="step-signin" class="step">
+        <p class="signin-intro">
+          Pick a training plan, set your race date, and add your full
+          schedule to Google Calendar as all-day events.
+        </p>
+        <button id="btn-signin" class="btn">Sign in with Google</button>
+      </div>
+
+      <!-- ── Step 2: Configure ────────────────────────────────────────── -->
+      <div id="step-configure" class="step hidden">
+
+        <p class="section-label">Configure your plan</p>
+
+        <div class="form-grid">
+
+          <div class="form-group">
+            <label for="race-date">Race Date</label>
+            <input type="date" id="race-date" class="field">
+          </div>
+
+          <div class="form-group">
+            <label for="goal-pace">Goal Finish Time</label>
+            <div class="select-wrap">
+              <select id="goal-pace" class="field"></select>
+            </div>
+            <div id="pace-tags"></div>
+            <span class="hint">Add multiple paces for group runs — each adds its own pace line to every event</span>
+          </div>
+
+          <div class="form-group">
+            <label for="plan-select">Training Plan</label>
+            <div class="select-wrap">
+              <select id="plan-select" class="field"></select>
+            </div>
+            <div id="plan-description"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="calendar-select">Google Calendar</label>
+            <div class="select-wrap">
+              <select id="calendar-select" class="field"></select>
+            </div>
+            <span class="hint">Changing calendars will search for an existing plan</span>
+          </div>
+
+        </div>
+
+        <div id="bq-category-group" class="form-group hidden">
+          <label for="bq-category">BQ Category</label>
+          <div class="select-wrap">
+            <select id="bq-category" class="field"></select>
+          </div>
+          <span class="hint">Official BAA qualifying time for your age group — select to add as a pace</span>
+        </div>
+
+        <div class="btn-row">
+          <button id="btn-preview" class="btn">Preview Plan</button>
+        </div>
+
+      </div>
+
+      <!-- ── Step 3: Preview ──────────────────────────────────────────── -->
+      <div id="step-preview" class="step hidden">
+
+        <p class="section-label" id="preview-section-label">Review your plan</p>
+
+        <div id="plan-summary"></div>
+        <div id="type-filters"></div>
+        <div id="plan-preview"></div>
+
+        <div class="btn-row">
+          <button id="btn-back" class="btn secondary">Back</button>
+          <button id="btn-add-to-calendar" class="btn accent">Add to Calendar</button>
+          <button id="btn-clear-plan" class="btn danger hidden">Clear Previous Plan</button>
+        </div>
+
+      </div>
+
+      <!-- ── Step 4: Progress ─────────────────────────────────────────── -->
+      <div id="step-progress" class="step hidden">
+        <p class="progress-label" id="progress-label-text">Working…</p>
+        <div class="progress-bar">
+          <div id="progress-fill"></div>
+        </div>
+        <p id="progress-text"></p>
+      </div>
+
+      <!-- ── Step 5: Done ─────────────────────────────────────────────── -->
+      <div id="step-done" class="step hidden">
+        <p class="done-mark">&#10003; Done</p>
+        <p class="done-body">
+          Your training plan has been added to Google Calendar.<br>
+          Good luck on race day.
+        </p>
+        <button id="btn-restart" class="btn secondary">Start Over</button>
+      </div>
+
+    </div><!-- /.scroll-inner -->
+  </div><!-- /.scroll-area -->
+
+</div><!-- /#app -->
+
+<script src="js/config.js"></script>
+<script src="js/plans.js"></script>
+<script src="js/calendar.js"></script>
+<script src="js/app.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+</body>
+</html>
