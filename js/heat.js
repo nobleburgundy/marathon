@@ -259,11 +259,7 @@
   function initTabs() {
     document.querySelectorAll('.tab-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const tab = btn.dataset.tab;
-        document.querySelectorAll('.tab-btn').forEach((b) =>
-          b.classList.toggle('tab-active', b === btn));
-        document.getElementById('plan-view').classList.toggle('hidden', tab !== 'plan');
-        document.getElementById('heat-view').classList.toggle('hidden', tab !== 'heat');
+        switchTab(btn.dataset.tab);
       });
     });
   }

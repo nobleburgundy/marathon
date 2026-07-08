@@ -4,9 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Marathon Planner</title>
+  <link rel="icon" href="img/wingedFoot.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Faster+One&family=Bebas+Neue&family=Yanone+Kaffeesatz:wght@400;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -21,16 +22,18 @@
   <!-- Top bar -->
   <div class="top-bar">
     <div class="inner top-bar-row">
+      <img src="img/wingedFoot.png" class="top-bar-icon" alt="">
       <span class="top-bar-title">Marathon Planner</span>
-      <span class="top-bar-sub">Google Calendar</span>
     </div>
   </div>
 
   <!-- Tab nav -->
   <div class="tab-nav">
     <div class="inner tab-nav-inner">
-      <button class="tab-btn tab-active" data-tab="plan">Training Plan</button>
-      <button class="tab-btn" data-tab="heat">Heat Calculator</button>
+      <button class="tab-btn tab-active" data-tab="plan">Build Plan</button>
+      <button class="tab-btn" data-tab="wizard">Training Wizard</button>
+      <button class="tab-btn" data-tab="plans">All Plans</button>
+      <button class="tab-btn" data-tab="heat">Adjust for Heat</button>
     </div>
   </div>
 
@@ -46,14 +49,20 @@
 
         <!-- Step 1: Sign in -->
         <div id="step-signin" class="step">
+          <div class="signin-hero">
+            <span class="signin-hero-num">26.2</span>
+            <span class="signin-hero-unit">miles</span>
+          </div>
+          <p class="signin-tagline">Plan the training. Trust the miles.</p>
           <p class="signin-intro">
             Pick a training plan, set your race date, and add your full
-            schedule to Google Calendar as all-day events.
+            schedule to Google Calendar as all-day events. Or browse and
+            export to PDF without signing in.
           </p>
           <button id="btn-signin" class="btn">Sign in with Google</button>
           <div class="signin-or"><span>or</span></div>
-          <button id="btn-browse" class="btn secondary">Browse Plans Without Google</button>
-          <p class="signin-browse-hint">View and export your training plan as a PDF &mdash; no account needed.</p>
+          <button id="btn-browse" class="btn secondary">Explore Without Sign-in</button>
+          <p class="signin-browse-hint">View and export your plan as a PDF &mdash; no account needed.</p>
         </div>
 
         <!-- Step 2: Configure -->
@@ -83,6 +92,7 @@
                 <select id="plan-select" class="field"></select>
               </div>
               <div id="plan-description"></div>
+              <button id="btn-plans-guide" class="link-btn">Compare all plans &rarr;</button>
             </div>
 
             <div class="form-group" id="calendar-form-group">
@@ -140,13 +150,30 @@
         <div id="step-done" class="step hidden">
           <p class="done-mark">&#10003; Done</p>
           <p class="done-body">
-            Your training plan has been added to Google Calendar.<br>
-            Good luck on race day.
+            Your plan is on the calendar.<br>
+            See you at the finish line.
           </p>
           <button id="btn-restart" class="btn secondary">Start Over</button>
         </div>
 
       </div><!-- /#plan-view -->
+
+      <!-- Training wizard view -->
+      <div id="wizard-view" class="hidden">
+        <div id="wizard-container"></div>
+      </div>
+
+      <!-- All plans view -->
+      <div id="plans-view" class="hidden">
+        <p class="section-label">Training Plans &mdash; Compare &amp; Choose</p>
+        <p class="plans-guide-intro">
+          All plans build to a Sunday race. Choose based on your current weekly mileage,
+          available training days, and whether you&rsquo;re focused on finishing or on time.
+          Not sure which to pick? Try the
+          <button class="link-btn" id="btn-plans-to-wizard">Training Wizard &rarr;</button>
+        </p>
+        <div id="plans-guide-content"></div>
+      </div>
 
       <!-- Heat calculator view -->
       <div id="heat-view" class="hidden">

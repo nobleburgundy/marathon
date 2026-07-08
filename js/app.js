@@ -275,6 +275,405 @@ async function searchExistingPlan(calendarId) {
   }
 }
 
+// ── Plans guide metadata ──────────────────────────────────────────────────────
+
+const PLAN_META = {
+  'hal-novice-supreme': {
+    level:    'beginner',
+    bestFor:  'Absolute beginners or runners returning after a long break who want 30 weeks of gradual build-up.',
+    approach: 'Starts with run/walk intervals for the first four weeks, spends twelve weeks building a pure aerobic base, then follows a standard novice long-run progression. The extra time significantly lowers injury risk.',
+  },
+  'galloway': {
+    level:    'beginner',
+    bestFor:  'Beginners, injury-prone runners, or anyone who wants to enjoy every mile rather than just survive it.',
+    approach: 'Jeff Galloway\'s run-walk intervals reduce impact and cumulative fatigue on every run — including the long run. Many runners finish faster using this method than with continuous running.',
+  },
+  'maf': {
+    level:    'beginner',
+    bestFor:  'Runners who push too hard on easy days, battle chronic fatigue, or want to rebuild their aerobic base from scratch.',
+    approach: 'Every run stays at or below the MAF heart rate (180 minus your age in bpm). No speedwork, no tempo. Early runs will feel very slow; aerobic efficiency builds progressively over 20 weeks.',
+  },
+  'hal-novice-1': {
+    level:    'beginner',
+    bestFor:  'First-time marathoners whose only goal is to cross the finish line.',
+    approach: 'Four days per week — three easy runs and a Saturday long run — with rest or cross-training on the other days. No speedwork. Long runs increase gradually to 20 miles before an 18-week taper.',
+  },
+  'hal-novice-2': {
+    level:    'beginner',
+    bestFor:  'Runners on their second marathon or first-timers already comfortable with 25+ mi/wk.',
+    approach: 'Same Saturday long-run structure as Novice 1, but adds Wednesday goal-pace runs. A gentle introduction to purposeful pacing without jumping into a full intermediate plan.',
+  },
+  'first': {
+    level:    'intermediate',
+    bestFor:  'Busy runners, triathletes, or anyone who can only run three days per week.',
+    approach: 'The Furman Institute\'s "Run Less, Run Faster" principle: one speed session (intervals), one tempo run, and one long run per week — plus two cross-training days. No junk miles; every run has a specific purpose.',
+  },
+  '80-20-running': {
+    level:    'intermediate',
+    bestFor:  'Runners who feel perpetually tired, catch frequent colds, or keep picking up overuse injuries — signs of chronically hard easy days.',
+    approach: 'Matt Fitzgerald\'s 80/20 principle keeps 80% of weekly mileage at a genuinely easy conversational effort, with just one quality session per week. Simple to follow, hard to overdo.',
+  },
+  'hansons-beginner': {
+    level:    'intermediate',
+    bestFor:  'Runners who\'ve been injured on 20-mile long runs or who want a "cumulative fatigue" approach over a single weekly sufferfest.',
+    approach: 'The Hansons method caps the long run at 16 miles. Instead, six-day training weeks build fatigue across the week. SOS (something of substance) workouts — speed on Tuesday, strength at marathon pace on Thursday — simulate late-race legs.',
+  },
+  'hal-intermediate-1': {
+    level:    'intermediate',
+    bestFor:  'Runners with one or two marathons who want a structured five-day schedule and a realistic shot at a PR.',
+    approach: 'Adds Monday aerobic runs and Wednesday goal-pace work on top of the Novice structure. Mileage is meaningfully higher; the plan rewards consistency over intensity.',
+  },
+  'jack-daniels-2q': {
+    level:    'intermediate',
+    bestFor:  'Analytical, data-driven runners who want a science-backed periodized plan with clear phase progressions.',
+    approach: 'Two quality sessions per week, progressing through four phases: Foundation (easy base), Transition (threshold), Quality (intervals + threshold), and Peak/Taper (marathon pace). Paces derived from VDOT tables.',
+  },
+  'hal-intermediate-2': {
+    level:    'advanced',
+    bestFor:  'High-mileage marathoners chasing a significant PR who can handle six days and 50+ mi/wk comfortably.',
+    approach: 'The highest-mileage Higdon plan. Adds Sunday recovery runs to the Intermediate 1 structure, pushing peak weeks into the 50s. Requires solid base fitness — not a plan to jump into cold.',
+  },
+  'pfitzinger-18-55': {
+    level:    'advanced',
+    bestFor:  'Competitive runners with 5+ years of consistent training who are currently running 40+ mi/wk.',
+    approach: 'From Pete Pfitzinger\'s "Advanced Marathoning." Six structured days: recovery runs, general aerobic work, medium-long runs, lactate threshold sessions, and long runs. Peaks around 55 mi/wk. Each day has a physiological purpose.',
+  },
+  'boston-qualifier': {
+    level:    'advanced',
+    bestFor:  'Runners chasing a specific Boston Qualifying time for their age group (set by official BAA standards).',
+    approach: 'Six days/week with tempo and goal-pace sessions throughout. Paces are locked to BAA qualifying standards for your age group — select your category after choosing this plan. Assumes a current base of 40+ mi/wk.',
+  },
+};
+
+// ── Plans guide render ────────────────────────────────────────────────────────
+
+function renderPlansGuide() {
+  const groups = [
+    { level: 'beginner',     label: 'Beginner'     },
+    { level: 'intermediate', label: 'Intermediate' },
+    { level: 'advanced',     label: 'Advanced'     },
+  ];
+
+  const html = groups.map(({ level, label }) => {
+    const groupPlans = PLANS.filter((p) => (PLAN_META[p.id] || {}).level === level);
+    if (!groupPlans.length) return '';
+
+    const cards = groupPlans.map((plan) => {
+      const meta      = PLAN_META[plan.id] || {};
+      const weekMiles = plan.schedule.map((w) => w.reduce((s, d) => s + d.miles, 0));
+      const peakMiles = Math.max(...weekMiles);
+      const peakWeek  = plan.schedule[weekMiles.indexOf(peakMiles)];
+      const daysPerWk = peakWeek.filter((d) => d.miles > 0).length;
+      const weeks     = plan.schedule.length;
+
+      return `
+        <div class="plan-card">
+          <div class="plan-card-header">
+            <span class="plan-card-name">${plan.name}</span>
+            <div class="plan-card-stats">
+              <span class="plan-stat">${weeks}&nbsp;wks</span>
+              <span class="plan-stat">${daysPerWk}&nbsp;days/wk</span>
+              <span class="plan-stat">~${Math.round(peakMiles)}&nbsp;mi peak</span>
+            </div>
+          </div>
+          <p class="plan-card-approach">${meta.approach || plan.description}</p>
+          <p class="plan-card-bestfor"><span class="plan-card-bestfor-label">Best for:</span> ${meta.bestFor || ''}</p>
+          <button class="btn secondary plan-select-btn" data-plan-id="${plan.id}">Select this plan</button>
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="plan-guide-group">
+        <p class="plan-guide-level">${label}</p>
+        ${cards}
+      </div>`;
+  }).join('');
+
+  document.getElementById('plans-guide-content').innerHTML = html;
+
+  document.querySelectorAll('.plan-select-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      selectPlanAndBuild(btn.dataset.planId);
+    });
+  });
+}
+
+// ── Training wizard ───────────────────────────────────────────────────────────
+
+const WIZARD_QUESTIONS = [
+  {
+    id: 'experience',
+    question: 'How many marathons have you finished?',
+    options: [
+      { value: 'first',   label: 'This is my first',          detail: 'I\'ve never run 26.2' },
+      { value: 'some',    label: 'One or two before',         detail: 'I know what to expect' },
+      { value: 'several', label: 'Several — I\'m after time', detail: 'Focused on performance' },
+    ],
+  },
+  {
+    id: 'days',
+    question: 'How many days a week can you train?',
+    options: [
+      { value: '3', label: '3 days', detail: 'Quality only — no filler' },
+      { value: '4', label: '4 days', detail: 'The most common setup' },
+      { value: '5', label: '5 days', detail: 'Serious commitment' },
+      { value: '6', label: '6 days', detail: 'High-mileage focus' },
+    ],
+  },
+  {
+    id: 'goal',
+    question: 'What\'s your main goal for this race?',
+    options: [
+      { value: 'finish', label: 'Cross the finish line',    detail: 'Completion is the victory' },
+      { value: 'base',   label: 'Build aerobic fitness',    detail: 'Long-term health focus' },
+      { value: 'pr',     label: 'Run a personal best',      detail: 'Chasing a time goal' },
+      { value: 'bq',     label: 'Qualify for Boston',       detail: 'Hit the official BAA standard' },
+    ],
+  },
+  {
+    id: 'special',
+    question: 'Anything else we should know?',
+    options: [
+      { value: 'injury',  label: 'I get injured when mileage ramps up',   detail: 'History of overuse or stress injuries' },
+      { value: 'busy',    label: 'Training time is limited each week',     detail: 'Efficiency matters most' },
+      { value: 'maxtime', label: 'I want maximum preparation time',        detail: 'Race is 6+ months away' },
+      { value: 'none',    label: 'None of the above',                      detail: '' },
+    ],
+  },
+  {
+    id: 'mileage',
+    question: 'What\'s your current weekly mileage?',
+    options: [
+      { value: 'low',  label: 'Under 25 mi/wk', detail: 'Building a base' },
+      { value: 'mid',  label: '25–40 mi/wk',    detail: 'Comfortable running base' },
+      { value: 'high', label: 'Over 40 mi/wk',  detail: 'Strong consistent base' },
+    ],
+  },
+];
+
+const wizardState = { step: 0, answers: {} };
+
+function getWizardQuestions() {
+  return WIZARD_QUESTIONS.filter((q) =>
+    q.id !== 'mileage' || wizardState.answers.experience !== 'first');
+}
+
+function initWizard() {
+  renderWizardStep();
+}
+
+function renderWizardStep() {
+  const questions = getWizardQuestions();
+  const step      = wizardState.step;
+  const container = document.getElementById('wizard-container');
+
+  if (step >= questions.length) { renderWizardResults(); return; }
+
+  const q      = questions[step];
+  const total  = questions.length;
+  const pct    = Math.round((step / total) * 100);
+  const answer = wizardState.answers[q.id];
+
+  container.innerHTML = `
+    <div class="wizard-head">
+      <div class="wizard-progress-track">
+        <div class="wizard-progress-fill" style="width:${pct}%"></div>
+      </div>
+      <span class="wizard-step-label">Step ${step + 1} of ${total}</span>
+    </div>
+    <h2 class="wizard-question">${q.question}</h2>
+    <div class="wizard-options">
+      ${q.options.map((opt) => `
+        <button class="wizard-option${answer === opt.value ? ' wizard-option-selected' : ''}" data-value="${opt.value}">
+          <span class="wizard-option-label">${opt.label}</span>
+          ${opt.detail ? `<span class="wizard-option-detail">${opt.detail}</span>` : ''}
+        </button>`).join('')}
+    </div>
+    <div class="wizard-nav">
+      ${step > 0 ? '<button class="btn secondary wizard-back">Back</button>' : '<span></span>'}
+    </div>`;
+
+  container.querySelectorAll('.wizard-option').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      wizardState.answers[q.id] = btn.dataset.value;
+      btn.classList.add('wizard-option-selected');
+      setTimeout(() => { wizardState.step++; renderWizardStep(); }, 180);
+    });
+  });
+
+  const back = container.querySelector('.wizard-back');
+  if (back) back.addEventListener('click', () => { wizardState.step--; renderWizardStep(); });
+}
+
+function scoreWizard(answers) {
+  const scores = {};
+  const add = (id, pts) => { scores[id] = (scores[id] || 0) + pts; };
+  const { experience, days, goal, special, mileage } = answers;
+
+  if (experience === 'first') {
+    add('hal-novice-1', 6); add('hal-novice-supreme', 4); add('galloway', 4); add('maf', 2);
+  } else if (experience === 'some') {
+    add('hal-novice-2', 5); add('hal-intermediate-1', 5); add('first', 4);
+    add('hansons-beginner', 4); add('80-20-running', 4); add('jack-daniels-2q', 3);
+  } else {
+    add('hal-intermediate-2', 4); add('pfitzinger-18-55', 5);
+    add('boston-qualifier', 5); add('jack-daniels-2q', 4); add('hal-intermediate-1', 2);
+  }
+
+  const d = parseInt(days, 10);
+  if (d === 3) { add('galloway', 5); add('first', 5); }
+  else if (d === 4) { add('hal-novice-1', 5); add('hal-novice-2', 4); add('hal-novice-supreme', 3); }
+  else if (d === 5) { add('hal-intermediate-1', 4); add('maf', 4); add('80-20-running', 4); }
+  else { add('pfitzinger-18-55', 4); add('boston-qualifier', 4); add('hal-intermediate-2', 4); add('hansons-beginner', 5); add('jack-daniels-2q', 4); }
+
+  if (goal === 'finish') {
+    add('hal-novice-1', 6); add('galloway', 5); add('hal-novice-supreme', 4); add('maf', 2);
+  } else if (goal === 'base') {
+    add('maf', 10); add('80-20-running', 7);
+  } else if (goal === 'pr') {
+    add('hal-intermediate-1', 5); add('jack-daniels-2q', 5); add('hansons-beginner', 4);
+    add('first', 4); add('hal-intermediate-2', 4); add('80-20-running', 3);
+    add('hal-novice-2', 3); add('pfitzinger-18-55', 3);
+  } else {
+    add('boston-qualifier', 12); add('pfitzinger-18-55', 7); add('jack-daniels-2q', 5);
+  }
+
+  if (special === 'injury') {
+    add('galloway', 7); add('maf', 6); add('hansons-beginner', 3); add('80-20-running', 3);
+    add('pfitzinger-18-55', -5); add('hal-intermediate-2', -4); add('boston-qualifier', -4);
+  } else if (special === 'busy') {
+    add('first', 8); add('galloway', 4);
+    add('pfitzinger-18-55', -5); add('hansons-beginner', -4);
+    add('hal-intermediate-2', -4); add('boston-qualifier', -4);
+  } else if (special === 'maxtime') {
+    add('hal-novice-supreme', 12); add('maf', 5);
+  }
+
+  if (mileage === 'low') {
+    add('hal-novice-1', 3); add('hal-novice-2', 2);
+    add('pfitzinger-18-55', -5); add('boston-qualifier', -5); add('hal-intermediate-2', -3);
+  } else if (mileage === 'mid') {
+    add('hal-intermediate-1', 4); add('hansons-beginner', 4); add('80-20-running', 3); add('jack-daniels-2q', 3);
+    add('pfitzinger-18-55', -2); add('boston-qualifier', -2);
+  } else if (mileage === 'high') {
+    add('pfitzinger-18-55', 6); add('boston-qualifier', 5); add('hal-intermediate-2', 5); add('jack-daniels-2q', 4);
+  }
+
+  return Object.entries(scores)
+    .sort(([, a], [, b]) => b - a)
+    .filter(([, s]) => s > 0)
+    .slice(0, 3)
+    .map(([id]) => PLANS.find((p) => p.id === id))
+    .filter(Boolean);
+}
+
+function buildMatchReason(planId, answers) {
+  const parts = [];
+  const { experience, days, goal, special, mileage } = answers;
+  if (planId === 'galloway' && special === 'injury')          parts.push('run-walk intervals reduce injury risk on every run');
+  if (planId === 'galloway' && days === '3')                  parts.push('designed for 3 training days per week');
+  if (planId === 'galloway' && goal === 'finish')             parts.push('proven completion method for first-time marathoners');
+  if (planId === 'first' && days === '3')                     parts.push('built for exactly 3 quality runs per week');
+  if (planId === 'first' && special === 'busy')               parts.push('maximum return on minimum training time');
+  if (planId === 'maf')                                       parts.push('every run stays at aerobic heart rate — impossible to overtrain');
+  if (planId === 'maf' && special === 'injury')               parts.push('no intense sessions means dramatically lower injury risk');
+  if (planId === 'hal-novice-supreme' && special === 'maxtime') parts.push('30 weeks — the most gradual marathon build available');
+  if (planId === 'boston-qualifier' && goal === 'bq')         parts.push('targets official BAA qualifying standards for your age group');
+  if (planId === 'pfitzinger-18-55' && mileage === 'high')    parts.push('structured for runners already at 40+ mi/wk');
+  if (planId === 'hansons-beginner' && special === 'injury')  parts.push('long runs capped at 16 miles reduces breakdown risk');
+  if (planId === 'jack-daniels-2q' && goal === 'pr')          parts.push('phase-based progression from aerobic base to race-specific pace');
+  if (planId === '80-20-running' && goal === 'base')          parts.push('80% of mileage at easy effort builds aerobic engine without burnout');
+  if (planId === '80-20-running' && special === 'injury')     parts.push('avoids the chronically hard easy days that cause overuse injuries');
+  if (planId === 'hal-novice-1' && experience === 'first')    parts.push('the most popular plan for first-time marathoners worldwide');
+  if (planId === 'hal-intermediate-1' && experience === 'some') parts.push('structured step up for runners ready to focus on time');
+  if (planId === 'hal-intermediate-2' && mileage === 'high')  parts.push('high weekly mileage with added Sunday recovery runs');
+  if (!parts.length) {
+    const meta = PLAN_META[planId] || {};
+    parts.push(meta.bestFor || 'strong match for your training profile');
+  }
+  return parts.join(' · ');
+}
+
+function renderWizardResults() {
+  const recs      = scoreWizard(wizardState.answers);
+  const container = document.getElementById('wizard-container');
+
+  if (!recs.length) {
+    container.innerHTML = `
+      <p class="section-label">No match found</p>
+      <p class="plans-guide-intro">Try adjusting your answers.</p>
+      <button class="btn secondary" id="wizard-restart-empty">Start over</button>`;
+    document.getElementById('wizard-restart-empty')
+      .addEventListener('click', restartWizard);
+    return;
+  }
+
+  const cards = recs.map((plan, i) => {
+    const weekMiles = plan.schedule.map((w) => w.reduce((s, d) => s + d.miles, 0));
+    const peakMiles = Math.max(...weekMiles);
+    const peakWeek  = plan.schedule[weekMiles.indexOf(peakMiles)];
+    const daysPerWk = peakWeek.filter((d) => d.miles > 0).length;
+    const reason    = buildMatchReason(plan.id, wizardState.answers);
+
+    return `
+      <div class="plan-card wizard-result-card${i === 0 ? ' wizard-result-top' : ''}">
+        ${i === 0 ? '<span class="wizard-best-badge">Best match</span>' : ''}
+        <div class="plan-card-header">
+          <span class="plan-card-name">${plan.name}</span>
+          <div class="plan-card-stats">
+            <span class="plan-stat">${plan.schedule.length}&nbsp;wks</span>
+            <span class="plan-stat">${daysPerWk}&nbsp;days/wk</span>
+            <span class="plan-stat">~${Math.round(peakMiles)}&nbsp;mi peak</span>
+          </div>
+        </div>
+        <p class="plan-card-approach">${reason}</p>
+        <button class="btn${i === 0 ? '' : ' secondary'} plan-select-btn" data-plan-id="${plan.id}">
+          ${i === 0 ? 'Build this plan' : 'Select instead'}
+        </button>
+      </div>`;
+  }).join('');
+
+  container.innerHTML = `
+    <p class="section-label">Recommended for you</p>
+    <div class="wizard-results">${cards}</div>
+    <div class="wizard-nav wizard-results-nav">
+      <button class="btn secondary" id="wizard-restart">Start over</button>
+      <button class="link-btn" id="wizard-browse-all">Browse all plans &rarr;</button>
+    </div>`;
+
+  container.querySelectorAll('.plan-select-btn').forEach((btn) => {
+    btn.addEventListener('click', () => selectPlanAndBuild(btn.dataset.planId));
+  });
+  document.getElementById('wizard-restart').addEventListener('click', restartWizard);
+  document.getElementById('wizard-browse-all').addEventListener('click', () => switchTab('plans'));
+}
+
+function restartWizard() {
+  wizardState.step    = 0;
+  wizardState.answers = {};
+  renderWizardStep();
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+
+const TAB_VIEWS = ['plan', 'wizard', 'plans', 'heat'];
+
+function switchTab(tabId) {
+  TAB_VIEWS.forEach((v) => {
+    document.getElementById(`${v}-view`).classList.toggle('hidden', v !== tabId);
+  });
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.classList.toggle('tab-active', btn.dataset.tab === tabId);
+  });
+}
+
+function selectPlanAndBuild(planId) {
+  document.getElementById('plan-select').value = planId;
+  updatePlanDescription();
+  switchTab('plan');
+  showStep('step-configure');
+}
+
 // ── UI state machine ──────────────────────────────────────────────────────────
 
 const steps = [
@@ -546,6 +945,15 @@ window.addEventListener('load', () => {
       document.getElementById('plan-view').classList.add('browse-mode');
       showStep('step-configure');
     });
+
+  document.getElementById('btn-plans-guide')
+    .addEventListener('click', () => switchTab('plans'));
+
+  renderPlansGuide();
+  document.getElementById('btn-plans-to-wizard')
+    .addEventListener('click', () => switchTab('wizard'));
+
+  initWizard();
 
   document.getElementById('btn-export-pdf')
     .addEventListener('click', () => window.print());
