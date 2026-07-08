@@ -13,12 +13,12 @@
 
 <div id="app">
 
-  <!-- ── Loading overlay (calendar search) ─────────────────────────────────── -->
+  <!-- Loading overlay (calendar search) -->
   <div id="loading-overlay" class="hidden">
-    <p id="loading-text">Checking calendar…</p>
+    <p id="loading-text">Checking calendar&hellip;</p>
   </div>
 
-  <!-- ── Top bar ─────────────────────────────────────────────────────────── -->
+  <!-- Top bar -->
   <div class="top-bar">
     <div class="inner top-bar-row">
       <span class="top-bar-title">Marathon Planner</span>
@@ -26,110 +26,225 @@
     </div>
   </div>
 
-  <!-- ── Scrollable content ─────────────────────────────────────────────── -->
+  <!-- Tab nav -->
+  <div class="tab-nav">
+    <div class="inner tab-nav-inner">
+      <button class="tab-btn tab-active" data-tab="plan">Training Plan</button>
+      <button class="tab-btn" data-tab="heat">Heat Calculator</button>
+    </div>
+  </div>
+
+  <!-- Scrollable content -->
   <div class="scroll-area">
     <div class="inner scroll-inner">
 
-      <!-- Global error -->
-      <div id="error-msg" class="hidden"></div>
+      <!-- Plan view -->
+      <div id="plan-view">
 
-      <!-- ── Step 1: Sign in ──────────────────────────────────────────── -->
-      <div id="step-signin" class="step">
-        <p class="signin-intro">
-          Pick a training plan, set your race date, and add your full
-          schedule to Google Calendar as all-day events.
-        </p>
-        <button id="btn-signin" class="btn">Sign in with Google</button>
-      </div>
+        <!-- Global error -->
+        <div id="error-msg" class="hidden"></div>
 
-      <!-- ── Step 2: Configure ────────────────────────────────────────── -->
-      <div id="step-configure" class="step hidden">
+        <!-- Step 1: Sign in -->
+        <div id="step-signin" class="step">
+          <p class="signin-intro">
+            Pick a training plan, set your race date, and add your full
+            schedule to Google Calendar as all-day events.
+          </p>
+          <button id="btn-signin" class="btn">Sign in with Google</button>
+        </div>
 
-        <p class="section-label">Configure your plan</p>
+        <!-- Step 2: Configure -->
+        <div id="step-configure" class="step hidden">
+
+          <p class="section-label">Configure your plan</p>
+
+          <div class="form-grid">
+
+            <div class="form-group">
+              <label for="race-date">Race Date</label>
+              <input type="date" id="race-date" class="field">
+            </div>
+
+            <div class="form-group">
+              <label for="goal-pace">Goal Finish Time</label>
+              <div class="select-wrap">
+                <select id="goal-pace" class="field"></select>
+              </div>
+              <div id="pace-tags"></div>
+              <span class="hint">Add multiple paces for group runs &mdash; each adds its own pace line to every event</span>
+            </div>
+
+            <div class="form-group">
+              <label for="plan-select">Training Plan</label>
+              <div class="select-wrap">
+                <select id="plan-select" class="field"></select>
+              </div>
+              <div id="plan-description"></div>
+            </div>
+
+            <div class="form-group">
+              <label for="calendar-select">Google Calendar</label>
+              <div class="select-wrap">
+                <select id="calendar-select" class="field"></select>
+              </div>
+              <span class="hint">Changing calendars will search for an existing plan</span>
+            </div>
+
+          </div>
+
+          <div id="bq-category-group" class="form-group hidden">
+            <label for="bq-category">BQ Category</label>
+            <div class="select-wrap">
+              <select id="bq-category" class="field"></select>
+            </div>
+            <span class="hint">Official BAA qualifying time for your age group &mdash; select to add as a pace</span>
+          </div>
+
+          <div class="btn-row">
+            <button id="btn-preview" class="btn">Preview Plan</button>
+          </div>
+
+        </div>
+
+        <!-- Step 3: Preview -->
+        <div id="step-preview" class="step hidden">
+
+          <p class="section-label" id="preview-section-label">Review your plan</p>
+
+          <div id="plan-summary"></div>
+          <div id="type-filters"></div>
+          <div id="plan-preview"></div>
+
+          <div class="btn-row">
+            <button id="btn-back" class="btn secondary">Back</button>
+            <button id="btn-add-to-calendar" class="btn accent">Add to Calendar</button>
+            <button id="btn-clear-plan" class="btn danger hidden">Clear Previous Plan</button>
+          </div>
+
+        </div>
+
+        <!-- Step 4: Progress -->
+        <div id="step-progress" class="step hidden">
+          <p class="progress-label" id="progress-label-text">Working&hellip;</p>
+          <div class="progress-bar">
+            <div id="progress-fill"></div>
+          </div>
+          <p id="progress-text"></p>
+        </div>
+
+        <!-- Step 5: Done -->
+        <div id="step-done" class="step hidden">
+          <p class="done-mark">&#10003; Done</p>
+          <p class="done-body">
+            Your training plan has been added to Google Calendar.<br>
+            Good luck on race day.
+          </p>
+          <button id="btn-restart" class="btn secondary">Start Over</button>
+        </div>
+
+      </div><!-- /#plan-view -->
+
+      <!-- Heat calculator view -->
+      <div id="heat-view" class="hidden">
+
+        <p class="section-label">Heat &amp; Humidity Pace Adjustment</p>
 
         <div class="form-grid">
 
           <div class="form-group">
-            <label for="race-date">Race Date</label>
-            <input type="date" id="race-date" class="field">
+            <label for="heat-miles">Distance</label>
+            <input type="number" id="heat-miles" class="field" placeholder="e.g. 6.2" min="0.1" max="200" step="0.1">
+            <span class="hint">Miles</span>
           </div>
 
           <div class="form-group">
-            <label for="goal-pace">Goal Finish Time</label>
-            <div class="select-wrap">
-              <select id="goal-pace" class="field"></select>
-            </div>
-            <div id="pace-tags"></div>
-            <span class="hint">Add multiple paces for group runs — each adds its own pace line to every event</span>
+            <label for="heat-pace">Goal Pace</label>
+            <input type="text" id="heat-pace" class="field" placeholder="e.g. 8:30" maxlength="5">
+            <span class="hint">Minutes per mile &nbsp;(mm:ss)</span>
           </div>
 
           <div class="form-group">
-            <label for="plan-select">Training Plan</label>
-            <div class="select-wrap">
-              <select id="plan-select" class="field"></select>
-            </div>
-            <div id="plan-description"></div>
+            <label for="heat-temp">Temperature</label>
+            <input type="number" id="heat-temp" class="field" placeholder="e.g. 78" min="-20" max="130">
+            <span class="hint">&deg;F</span>
           </div>
 
           <div class="form-group">
-            <label for="calendar-select">Google Calendar</label>
-            <div class="select-wrap">
-              <select id="calendar-select" class="field"></select>
+            <div class="heat-humidity-header">
+              <label>Dew Point</label>
+              <div class="heat-input-toggle">
+                <button class="heat-toggle-btn heat-toggle-active" data-mode="dew">Dew Point</button>
+                <button class="heat-toggle-btn" data-mode="rh">Humidity %</button>
+              </div>
             </div>
-            <span class="hint">Changing calendars will search for an existing plan</span>
+            <div id="heat-dew-wrap">
+              <input type="number" id="heat-dew" class="field" placeholder="e.g. 65" min="-20" max="100">
+              <span class="hint">&deg;F &nbsp;&middot;&nbsp; available in most weather apps</span>
+            </div>
+            <div id="heat-rh-wrap" class="hidden">
+              <input type="number" id="heat-rh" class="field" placeholder="e.g. 72" min="0" max="100">
+              <span class="hint">% &nbsp;&middot;&nbsp; shown in most phone weather apps</span>
+            </div>
           </div>
 
-        </div>
-
-        <div id="bq-category-group" class="form-group hidden">
-          <label for="bq-category">BQ Category</label>
-          <div class="select-wrap">
-            <select id="bq-category" class="field"></select>
+          <div class="form-group">
+            <label for="heat-intensity">Workout Type</label>
+            <div class="select-wrap">
+              <select id="heat-intensity" class="field">
+                <option value="">Select type&hellip;</option>
+                <option value="easy">Easy Run</option>
+                <option value="workout">Workout &nbsp;(Tempo / Threshold / Intervals)</option>
+                <option value="race">Race</option>
+              </select>
+            </div>
           </div>
-          <span class="hint">Official BAA qualifying time for your age group — select to add as a pace</span>
-        </div>
 
-        <div class="btn-row">
-          <button id="btn-preview" class="btn">Preview Plan</button>
-        </div>
+        </div><!-- /.form-grid -->
 
-      </div>
+        <p id="heat-invalid" class="heat-invalid hidden"></p>
 
-      <!-- ── Step 3: Preview ──────────────────────────────────────────── -->
-      <div id="step-preview" class="step hidden">
+        <!-- Result -->
+        <div id="heat-result" class="hidden">
 
-        <p class="section-label" id="preview-section-label">Review your plan</p>
+          <div class="heat-condition-row">
+            <span class="heat-cond-badge" id="heat-cond-badge"></span>
+            <span class="heat-cond-desc" id="heat-cond-desc"></span>
+          </div>
 
-        <div id="plan-summary"></div>
-        <div id="type-filters"></div>
-        <div id="plan-preview"></div>
+          <div class="summary-rows heat-stats">
+            <div class="summary-row">
+              <span class="summary-label">Heat Adjustment</span>
+              <span class="summary-value" id="heat-adj-pct">&#8212;</span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-label">Adjusted Pace</span>
+              <span class="summary-value" id="heat-adj-pace">&#8212;</span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-label">Adjusted Total Time</span>
+              <span class="summary-value" id="heat-adj-time">&#8212;</span>
+            </div>
+          </div>
 
-        <div class="btn-row">
-          <button id="btn-back" class="btn secondary">Back</button>
-          <button id="btn-add-to-calendar" class="btn accent">Add to Calendar</button>
-          <button id="btn-clear-plan" class="btn danger hidden">Clear Previous Plan</button>
-        </div>
+          <div class="heat-comparison">
+            <div class="heat-compare-item">
+              <span class="heat-compare-label">Goal</span>
+              <span class="heat-compare-val" id="heat-goal-display">&#8212;</span>
+            </div>
+            <div class="heat-compare-arrow">&#8594;</div>
+            <div class="heat-compare-item">
+              <span class="heat-compare-label">Heat-Adjusted</span>
+              <span class="heat-compare-val heat-compare-accent" id="heat-adj-display">&#8212;</span>
+            </div>
+          </div>
 
-      </div>
+          <ul id="heat-tips" class="heat-tips"></ul>
 
-      <!-- ── Step 4: Progress ─────────────────────────────────────────── -->
-      <div id="step-progress" class="step hidden">
-        <p class="progress-label" id="progress-label-text">Working…</p>
-        <div class="progress-bar">
-          <div id="progress-fill"></div>
-        </div>
-        <p id="progress-text"></p>
-      </div>
+          <p id="heat-warning" class="heat-warning hidden"></p>
 
-      <!-- ── Step 5: Done ─────────────────────────────────────────────── -->
-      <div id="step-done" class="step hidden">
-        <p class="done-mark">&#10003; Done</p>
-        <p class="done-body">
-          Your training plan has been added to Google Calendar.<br>
-          Good luck on race day.
-        </p>
-        <button id="btn-restart" class="btn secondary">Start Over</button>
-      </div>
+        </div><!-- /#heat-result -->
+
+      </div><!-- /#heat-view -->
 
     </div><!-- /.scroll-inner -->
   </div><!-- /.scroll-area -->
@@ -140,6 +255,7 @@
 <script src="js/plans.js"></script>
 <script src="js/calendar.js"></script>
 <script src="js/app.js"></script>
+<script src="js/heat.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 </body>
