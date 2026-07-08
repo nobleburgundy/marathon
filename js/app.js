@@ -18,6 +18,8 @@ const STORAGE_CALENDAR = 'mp_calendar'; // preferred calendar ID only
 let savedCalendarId = null;
 let savedEventIds   = [];
 
+let browseMode = false;
+
 // Selected paces — supports multiple for group runs.
 let selectedPaces = [];
 
@@ -537,6 +539,16 @@ window.addEventListener('load', () => {
       CalendarAPI.init(CONFIG.googleClientId, onSignedIn);
       CalendarAPI.signIn();
     });
+
+  document.getElementById('btn-browse')
+    .addEventListener('click', () => {
+      browseMode = true;
+      document.getElementById('plan-view').classList.add('browse-mode');
+      showStep('step-configure');
+    });
+
+  document.getElementById('btn-export-pdf')
+    .addEventListener('click', () => window.print());
   document.getElementById('btn-preview')
     .addEventListener('click', onPreview);
   document.getElementById('btn-back')
@@ -554,7 +566,13 @@ window.addEventListener('load', () => {
       document.getElementById('plan-summary').innerHTML  = '';
       document.getElementById('plan-preview').innerHTML  = '';
       document.getElementById('type-filters').innerHTML  = '';
-      showStep('step-configure');
+      if (browseMode) {
+        browseMode = false;
+        document.getElementById('plan-view').classList.remove('browse-mode');
+        showStep('step-signin');
+      } else {
+        showStep('step-configure');
+      }
     });
 
   // When the user changes the calendar dropdown after sign-in, re-search.

@@ -339,6 +339,40 @@ html, body {
   max-width: 560px;
 }
 
+/* ── Sign-in browse option ───────────────────────────────────────────────────*/
+
+.signin-or {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 260px;
+  margin: 28px 0 24px;
+  font-family: 'Barlow', sans-serif;
+  font-size: 13px;
+  color: var(--text3);
+}
+
+.signin-or::before,
+.signin-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.signin-browse-hint {
+  font-size: 13px;
+  color: var(--text3);
+  letter-spacing: 0.02em;
+  margin-top: 12px;
+}
+
+/* ── Browse mode (no Google auth) ────────────────────────────────────────────*/
+
+#plan-view.browse-mode #calendar-form-group { display: none; }
+#plan-view.browse-mode #btn-add-to-calendar { display: none; }
+#plan-view.browse-mode #btn-clear-plan      { display: none; }
+
 /* ── Summary grid ────────────────────────────────────────────────────────────*/
 
 .summary-rows {
@@ -722,6 +756,71 @@ html, body {
 }
 
 .heat-tips li:last-child { border-bottom: none; }
+
+/* ── Print / PDF export ──────────────────────────────────────────────────────*/
+
+@media print {
+  /* Undo the fixed-position shell so full content renders */
+  html, body    { height: auto !important; overflow: visible !important; }
+  #app          { position: static !important; display: block !important; }
+  .scroll-area  { overflow: visible !important; flex: none !important; height: auto !important; }
+  .scroll-inner { padding: 20px 0 40px !important; }
+  .inner        { max-width: none !important; padding: 0 20px !important; }
+
+  /* Hide everything except the plan preview */
+  #loading-overlay,
+  .top-bar,
+  .tab-nav,
+  #heat-view,
+  #error-msg,
+  #step-signin,
+  #step-configure,
+  #step-progress,
+  #step-done,
+  #type-filters,
+  .btn-row        { display: none !important; }
+
+  /* Ensure the preview step shows even if hidden class is on siblings */
+  #plan-view  { display: block !important; }
+  #step-preview { display: block !important; }
+
+  /* Section label */
+  .section-label {
+    font-size: 11px !important;
+    color: #666 !important;
+    border-bottom-color: #333 !important;
+    margin-bottom: 20px !important;
+  }
+
+  /* Summary grid */
+  .summary-rows {
+    border-top-color: #333 !important;
+    border-left-color: #ccc !important;
+    margin-bottom: 28px !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+  .summary-row  { border-right-color: #ccc !important; border-bottom-color: #ccc !important; padding: 12px 16px !important; }
+  .summary-label { color: #666 !important; font-size: 11px !important; }
+  .summary-value { font-size: 20px !important; color: #000 !important; }
+
+  /* Plan table */
+  .table-scroll { overflow: visible !important; border-top-color: #333 !important; }
+  .plan-table   { font-size: 12px !important; width: 100% !important; }
+  .plan-table th {
+    color: #666 !important;
+    font-size: 10px !important;
+    border-bottom-color: #bbb !important;
+    padding: 8px 6px !important;
+  }
+  .plan-table td        { border-bottom-color: #eee !important; padding: 7px 5px !important; }
+  .week-num             { color: #999 !important; font-size: 10px !important; }
+  .day-miles            { font-size: 12px !important; }
+  .day-pace-hint        { font-size: 9px !important; }
+
+  /* Preserve run-type colors in color print; keep readable in B&W */
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 
 .heat-warning {
   font-size: 14px;
