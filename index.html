@@ -194,6 +194,29 @@
             <span class="hint">Minutes per mile &nbsp;(mm:ss)</span>
           </div>
 
+          <div class="heat-weather-row">
+            <div class="heat-weather-when">
+              <label for="heat-weather-date">Run Date &amp; Time</label>
+              <div class="heat-weather-when-inputs">
+                <input type="date" id="heat-weather-date" class="field heat-weather-date-field">
+                <div class="select-wrap heat-weather-time-wrap">
+                  <select id="heat-weather-time" class="field heat-weather-time-field">
+                    <option value="">Time&hellip;</option>
+                  </select>
+                </div>
+              </div>
+              <span class="hint">Optional &mdash; leave blank for current conditions</span>
+            </div>
+            <div class="heat-weather-controls">
+              <button type="button" id="btn-use-weather" class="link-btn">&#128205; Use my location</button>
+              <span class="heat-weather-sep">or</span>
+              <input type="text" id="heat-zip-input" class="field heat-zip-field" placeholder="ZIP code" inputmode="numeric" pattern="[0-9]*" maxlength="5">
+              <button type="button" id="btn-zip-fetch" class="link-btn">Get Weather</button>
+              <div id="heat-zip-saved" class="heat-zip-saved"></div>
+            </div>
+            <span id="heat-weather-status" class="hint"></span>
+          </div>
+
           <div class="form-group">
             <label for="heat-temp">Temperature</label>
             <input type="number" id="heat-temp" class="field" placeholder="e.g. 78" min="-20" max="130">
@@ -271,7 +294,15 @@
 
           <ul id="heat-tips" class="heat-tips"></ul>
 
-          <p id="heat-warning" class="heat-warning hidden"></p>
+          <div id="heat-warning" class="heat-warning hidden"></div>
+
+          <div id="heat-risk-chart" class="heat-risk-chart hidden">
+            <p class="heat-risk-chart-label">Heat Risk by Hour &nbsp;<span id="heat-risk-chart-date"></span></p>
+            <div id="heat-risk-chart-bars" class="heat-risk-chart-bars"></div>
+            <div id="heat-risk-chart-hours" class="heat-risk-chart-hours"></div>
+            <p id="heat-risk-chart-detail" class="heat-risk-chart-detail"></p>
+            <p class="heat-risk-chart-hint">Taller, redder bars = higher heat risk &mdash; the outlined bar is your selected time. Tap any bar for its temperature and humidity.</p>
+          </div>
 
         </div><!-- /#heat-result -->
 
