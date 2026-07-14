@@ -114,6 +114,13 @@
 
   // ── Formatters ────────────────────────────────────────────────────────────────
 
+  // Auto-corrects a bare integer (e.g. "10") into mm:ss form ("10:00"),
+  // so users don't have to type the trailing ":00" themselves.
+  function autoFormatPace(input) {
+    const v = input.value.trim();
+    if (/^\d+$/.test(v)) input.value = `${parseInt(v, 10)}:00`;
+  }
+
   function parseMMSS(str) {
     const parts = str.trim().split(':');
     if (parts.length !== 2) return null;
@@ -271,6 +278,12 @@
     initHumidityToggle();
     ['heat-miles', 'heat-pace', 'heat-temp', 'heat-dew', 'heat-rh', 'heat-intensity'].forEach((id) => {
       document.getElementById(id).addEventListener('input', calculate);
+    });
+
+    const paceInput = document.getElementById('heat-pace');
+    paceInput.addEventListener('blur', () => {
+      autoFormatPace(paceInput);
+      calculate();
     });
   });
 

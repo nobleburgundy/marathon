@@ -658,6 +658,14 @@ function restartWizard() {
 
 const TAB_VIEWS = ['plan', 'wizard', 'plans', 'heat'];
 
+// Shareable-link slugs for each tab, e.g. #heat-calculator
+const TAB_HASHES = {
+  plan:  'plan',
+  wizard: 'training-wizard',
+  plans: 'plans',
+  heat:  'heat-calculator',
+};
+
 function switchTab(tabId) {
   TAB_VIEWS.forEach((v) => {
     document.getElementById(`${v}-view`).classList.toggle('hidden', v !== tabId);
@@ -665,6 +673,15 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.classList.toggle('tab-active', btn.dataset.tab === tabId);
   });
+  const hash = `#${TAB_HASHES[tabId]}`;
+  if (location.hash !== hash) history.replaceState(null, '', hash);
+}
+
+// Opens the tab matching the current URL hash (e.g. a shared /heat-calculator link).
+function openTabFromHash() {
+  const slug = location.hash.slice(1);
+  const tabId = Object.keys(TAB_HASHES).find((k) => TAB_HASHES[k] === slug);
+  if (tabId && tabId !== 'plan') switchTab(tabId);
 }
 
 function selectPlanAndBuild(planId) {
@@ -994,7 +1011,12 @@ window.addEventListener('load', () => {
       const found = await searchExistingPlan(calendarId);
       if (!found) showStep('step-configure');
     });
+
+  // Opens directly to a tab if the URL was shared with a hash, e.g. #heat-calculator.
+  openTabFromHash();
 });
+
+window.addEventListener('hashchange', openTabFromHash);
 
 // ── Sign-in handler ───────────────────────────────────────────────────────────
 

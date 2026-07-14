@@ -35,6 +35,11 @@ html, body {
   font-size: 15px;
   line-height: 1.6;
   overscroll-behavior: none;
+  /* stop iOS auto-inflating text on rotation, and guard against any
+     stray element pushing the page into horizontal scroll */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: hidden;
 }
 
 /* ── Utility ─────────────────────────────────────────────────────────────────*/
@@ -125,7 +130,10 @@ html, body {
 }
 
 .scroll-inner {
-  padding: 52px 0 80px;
+  /* longhand on purpose: a shorthand here would zero out the left/right
+     padding .inner sets on this same element (equal specificity, later wins) */
+  padding-top: 52px;
+  padding-bottom: 80px;
 }
 
 /* ── Steps ───────────────────────────────────────────────────────────────────*/
@@ -1102,12 +1110,14 @@ html, body {
 @media (max-width: 640px) {
 
   .inner {
-    padding: 0 16px;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
   }
 
   .top-bar-row {
     height: 48px;
-    padding: 0 16px;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
   }
 
   .top-bar-title {
@@ -1116,7 +1126,8 @@ html, body {
   }
 
   .tab-nav-inner {
-    padding: 0 16px;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
@@ -1131,7 +1142,8 @@ html, body {
   }
 
   .scroll-inner {
-    padding: 28px 0 56px;
+    padding-top: 28px;
+    padding-bottom: 56px;
   }
 
   .section-label {
@@ -1222,7 +1234,11 @@ html, body {
   .heat-toggle-btn {
     flex: 1;
     text-align: center;
-    padding: 6px 8px;
+    padding: 11px 8px;         /* wider tap target on touch screens */
+  }
+
+  .pace-tag-remove {
+    padding: 6px 8px;          /* wider tap target on touch screens */
   }
 
   .heat-condition-row {
