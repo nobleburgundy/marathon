@@ -1096,3 +1096,166 @@ html, body {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
+
+/* ── Mobile / small screens ──────────────────────────────────────────────────*/
+
+@media (max-width: 640px) {
+
+  .inner {
+    padding: 0 16px;
+  }
+
+  .top-bar-row {
+    height: 48px;
+    padding: 0 16px;
+  }
+
+  .top-bar-title {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+  }
+
+  .tab-nav-inner {
+    padding: 0 16px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tab-nav-inner::-webkit-scrollbar { display: none; }
+
+  .tab-btn {
+    margin-right: 20px;
+    font-size: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .scroll-inner {
+    padding: 28px 0 56px;
+  }
+
+  .section-label {
+    font-size: 10px;
+    margin-bottom: 28px;
+  }
+
+  /* Single-column forms */
+  .form-grid {
+    grid-template-columns: 1fr;
+    column-gap: 0;
+  }
+
+  .form-group {
+    margin-bottom: 28px;
+  }
+
+  /* Prevent iOS Safari auto-zoom on focus (needs >=16px) */
+  .field,
+  select.field,
+  input.field {
+    font-size: 16px;
+  }
+
+  .signin-hero-num {
+    font-size: 56px;
+  }
+
+  .signin-hero-unit {
+    font-size: 10px;
+  }
+
+  .signin-tagline {
+    font-size: 13px;
+  }
+
+  .signin-intro {
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .btn {
+    padding: 12px 20px;
+    font-size: 10px;
+  }
+
+  .btn-row {
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 32px;
+  }
+
+  .btn-row .btn.danger {
+    margin-left: 0;
+  }
+
+  /* Summary / heat stat grids: 3 cramped columns -> stack */
+  .summary-rows,
+  .heat-stats {
+    grid-template-columns: 1fr;
+    margin-bottom: 32px;
+  }
+
+  .summary-row {
+    border-right: none;
+  }
+
+  .summary-value {
+    font-size: 24px;
+  }
+
+  .table-scroll {
+    margin: 0 -16px 8px;
+    padding: 0 16px;
+  }
+
+  /* ── Heat calculator ────────────────────────────────────────────────────── */
+
+  .heat-humidity-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .heat-input-toggle {
+    width: 100%;
+  }
+
+  .heat-toggle-btn {
+    flex: 1;
+    text-align: center;
+    padding: 6px 8px;
+  }
+
+  .heat-condition-row {
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 28px;
+  }
+
+  .heat-comparison {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    padding: 16px 18px;
+  }
+
+  .heat-compare-arrow {
+    transform: rotate(90deg);
+    align-self: center;
+  }
+
+  .heat-compare-val {
+    font-size: 20px;
+  }
+
+  .plan-card-header {
+    gap: 8px 20px;
+  }
+
+  #wizard-container {
+    max-width: none;
+  }
+
+  .wizard-question {
+    font-size: 16px;
+  }
+}
