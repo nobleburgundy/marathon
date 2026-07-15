@@ -656,10 +656,11 @@ function restartWizard() {
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 
-const TAB_VIEWS = ['plan', 'wizard', 'plans', 'heat'];
+const TAB_VIEWS = ['home', 'plan', 'wizard', 'plans', 'heat'];
 
 // Shareable-link slugs for each tab, e.g. #heat-calculator
 const TAB_HASHES = {
+  home:  'home',
   plan:  'plan',
   wizard: 'training-wizard',
   plans: 'plans',
@@ -681,7 +682,7 @@ function switchTab(tabId) {
 function openTabFromHash() {
   const slug = location.hash.slice(1);
   const tabId = Object.keys(TAB_HASHES).find((k) => TAB_HASHES[k] === slug);
-  if (tabId && tabId !== 'plan') switchTab(tabId);
+  if (tabId && tabId !== 'home') switchTab(tabId);
 }
 
 function selectPlanAndBuild(planId) {
@@ -962,6 +963,10 @@ window.addEventListener('load', () => {
       document.getElementById('plan-view').classList.add('browse-mode');
       showStep('step-configure');
     });
+
+  document.querySelectorAll('.home-link-card').forEach((btn) => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.goto));
+  });
 
   document.getElementById('btn-plans-guide')
     .addEventListener('click', () => switchTab('plans'));

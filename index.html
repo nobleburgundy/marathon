@@ -30,7 +30,8 @@
   <!-- Tab nav -->
   <div class="tab-nav">
     <div class="inner tab-nav-inner">
-      <button class="tab-btn tab-active" data-tab="plan">Build Plan</button>
+      <button class="tab-btn tab-active" data-tab="home">Home</button>
+      <button class="tab-btn" data-tab="plan">Build Plan</button>
       <button class="tab-btn" data-tab="wizard">Training Wizard</button>
       <button class="tab-btn" data-tab="plans">All Plans</button>
       <button class="tab-btn" data-tab="heat">Adjust for Heat</button>
@@ -41,8 +42,71 @@
   <div class="scroll-area">
     <div class="inner scroll-inner">
 
+      <!-- Home view -->
+      <div id="home-view">
+
+        <p class="section-label">Current Conditions</p>
+
+        <div class="current-conditions" id="current-conditions">
+          <div class="heat-weather-row">
+            <div class="heat-weather-controls">
+              <button type="button" id="cc-btn-use-weather" class="link-btn">&#128205; Use my location</button>
+              <span class="heat-weather-sep">or</span>
+              <input type="text" id="cc-zip-input" class="field heat-zip-field" placeholder="ZIP code" inputmode="numeric" pattern="[0-9]*" maxlength="5">
+              <button type="button" id="cc-btn-zip-fetch" class="link-btn">Get Weather</button>
+              <div id="cc-zip-saved" class="heat-zip-saved"></div>
+            </div>
+            <span id="cc-weather-status" class="hint"></span>
+          </div>
+
+          <div class="heat-condition-row">
+            <span class="heat-cond-badge" id="cc-cond-badge"></span>
+            <span class="heat-cond-desc" id="cc-cond-desc"></span>
+          </div>
+
+          <div id="cc-aqi-row" class="heat-condition-row heat-aqi-row hidden">
+            <span class="heat-cond-badge" id="cc-aqi-badge"></span>
+            <span class="heat-cond-desc" id="cc-aqi-desc"></span>
+          </div>
+
+          <div id="cc-risk-chart" class="heat-risk-chart hidden">
+            <p class="heat-risk-chart-label">Heat Risk by Hour &nbsp;<span id="cc-risk-chart-date"></span></p>
+            <div id="cc-risk-chart-legend" class="heat-risk-chart-legend hidden">
+              <span class="heat-risk-legend-item"><span class="heat-risk-legend-swatch heat-risk-legend-heat"></span>Heat Risk</span>
+              <span class="heat-risk-legend-item"><span class="heat-risk-legend-swatch heat-risk-legend-aqi"></span>Air Quality</span>
+            </div>
+            <div id="cc-risk-chart-bars" class="heat-risk-chart-bars"></div>
+            <div id="cc-risk-chart-hours" class="heat-risk-chart-hours"></div>
+            <p id="cc-risk-chart-detail" class="heat-risk-chart-detail"></p>
+            <p class="heat-risk-chart-hint">Taller, redder bars = higher risk. Tap any bar for details.</p>
+          </div>
+        </div>
+
+        <p class="section-label home-explore-label">Explore</p>
+
+        <div class="home-explore">
+          <button type="button" class="wizard-option home-link-card" data-goto="plan">
+            <span class="wizard-option-label">Build a Training Plan &rarr;</span>
+            <span class="wizard-option-detail">Pick a plan, set your race date, and add your schedule to Google Calendar or export it as a PDF.</span>
+          </button>
+          <button type="button" class="wizard-option home-link-card" data-goto="wizard">
+            <span class="wizard-option-label">Training Wizard &rarr;</span>
+            <span class="wizard-option-detail">Answer a few questions to find the right plan for your experience and goals.</span>
+          </button>
+          <button type="button" class="wizard-option home-link-card" data-goto="plans">
+            <span class="wizard-option-label">All Plans &rarr;</span>
+            <span class="wizard-option-detail">Compare every Hal Higdon plan side by side &mdash; mileage, days per week, and who it's for.</span>
+          </button>
+          <button type="button" class="wizard-option home-link-card" data-goto="heat">
+            <span class="wizard-option-label">Adjust for Heat &rarr;</span>
+            <span class="wizard-option-detail">Calculate how much to slow down for a specific run based on heat, humidity, and air quality.</span>
+          </button>
+        </div>
+
+      </div><!-- /#home-view -->
+
       <!-- Plan view -->
-      <div id="plan-view">
+      <div id="plan-view" class="hidden">
 
         <!-- Global error -->
         <div id="error-msg" class="hidden"></div>
@@ -59,6 +123,7 @@
             schedule to Google Calendar as all-day events. Or browse and
             export to PDF without signing in.
           </p>
+
           <button id="btn-signin" class="btn">Sign in with Google</button>
           <div class="signin-or"><span>or</span></div>
           <button id="btn-browse" class="btn secondary">Explore Without Sign-in</button>
@@ -265,6 +330,11 @@
             <span class="heat-cond-desc" id="heat-cond-desc"></span>
           </div>
 
+          <div id="heat-aqi-row" class="heat-condition-row heat-aqi-row hidden">
+            <span class="heat-cond-badge" id="heat-aqi-badge"></span>
+            <span class="heat-cond-desc" id="heat-aqi-desc"></span>
+          </div>
+
           <div class="summary-rows heat-stats">
             <div class="summary-row">
               <span class="summary-label">Heat Adjustment</span>
@@ -298,10 +368,14 @@
 
           <div id="heat-risk-chart" class="heat-risk-chart hidden">
             <p class="heat-risk-chart-label">Heat Risk by Hour &nbsp;<span id="heat-risk-chart-date"></span></p>
+            <div id="heat-risk-chart-legend" class="heat-risk-chart-legend hidden">
+              <span class="heat-risk-legend-item"><span class="heat-risk-legend-swatch heat-risk-legend-heat"></span>Heat Risk</span>
+              <span class="heat-risk-legend-item"><span class="heat-risk-legend-swatch heat-risk-legend-aqi"></span>Air Quality</span>
+            </div>
             <div id="heat-risk-chart-bars" class="heat-risk-chart-bars"></div>
             <div id="heat-risk-chart-hours" class="heat-risk-chart-hours"></div>
             <p id="heat-risk-chart-detail" class="heat-risk-chart-detail"></p>
-            <p class="heat-risk-chart-hint">Taller, redder bars = higher heat risk &mdash; the outlined bar is your selected time. Tap any bar for its temperature and humidity.</p>
+            <p class="heat-risk-chart-hint">Taller, redder bars = higher risk &mdash; the outlined bar is your selected time. Tap any bar for details.</p>
           </div>
 
         </div><!-- /#heat-result -->

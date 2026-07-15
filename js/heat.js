@@ -222,7 +222,9 @@
     return { lat: parseFloat(place.latitude), lon: parseFloat(place.longitude) };
   }
 
-  const FORECAST_MAX_DAYS = 16; // Open-Meteo's hourly forecast horizon
+  // Capped to Open-Meteo's air quality horizon (its shorter of the two) so the
+  // AQI badge is always available whenever a forecast can be selected at all.
+  const FORECAST_MAX_DAYS = 7;
 
   function fillWeatherFields(temp, dew, rh) {
     document.getElementById('heat-temp').value = Math.round(temp);
@@ -244,16 +246,38 @@
     return dateVal && timeVal ? `${dateVal}T${timeVal}` : '';
   }
 
-  // Fetches weather for a location. If a run date/time is selected in the
-  // "Run Date & Time" fields, pulls the closest forecasted hour instead of
-  // current conditions — both share the same lat/lon lookup flow (geolocation
-  // or ZIP), so the date/time applies no matter which one the user picked.
-  // Always pulls the hourly series (rather than a separate "current" endpoint)
-  // so the same response can drive the 6am–10pm heat-risk-by-hour chart.
-  async function applyWeatherFromCoords(lat, lon) {
-    const dtStr  = getSelectedRunDatetimeStr();
-    const target = dtStr ? new Date(dtStr) : new Date();
+  // Finds the hourly entry closest to a target Date, given a naive (offset-less)
+  // "local to the location" time array — shared by the weather, AQI, and
+  // chart-detail lookups so they all resolve "closest hour" the same way.
+  function closestTimeIndex(times, target) {
+    let bestIdx = 0, bestDiffMs = Infinity;
+    times.forEach((t, i) => {
+      const diff = Math.abs(new Date(t).getTime() - target.getTime());
+      if (diff < bestDiffMs) { bestDiffMs = diff; bestIdx = i; }
+    });
+    return { bestIdx, bestDiffMs };
+  }
 
+  // Fetches and validates the AQI hourly series; returns null (rather than
+  // throwing) on any failure, since AQI is supplementary to the weather call.
+  async function fetchAqiHourly(lat, lon) {
+    try {
+      const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}`
+        + `&hourly=us_aqi&timezone=auto&forecast_days=${FORECAST_MAX_DAYS}&past_days=2`;
+      const res = await fetch(aqiUrl);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.hourly || !data.hourly.time || !data.hourly.time.length) return null;
+      return data.hourly;
+    } catch {
+      return null;
+    }
+  }
+
+  // Fetches the weather hourly series + AQI hourly series for a location in
+  // parallel. AQI failure never blocks weather (see fetchAqiHourly); weather
+  // failure throws, since there's nothing to show without it.
+  async function fetchWeatherAndAqi(lat, lon) {
     // timezone=auto returns hourly.time as naive local-to-the-location strings,
     // matching the naive (offset-less) string a datetime-local input gives us —
     // so comparing them directly lines up "wall clock at the run location"
@@ -261,36 +285,106 @@
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
       + `&hourly=temperature_2m,relative_humidity_2m,dew_point_2m&temperature_unit=fahrenheit`
       + `&timezone=auto&forecast_days=${FORECAST_MAX_DAYS}&past_days=2`;
-    const res = await fetch(url);
+
+    const [res, aqiHourly] = await Promise.all([
+      fetch(url),
+      fetchAqiHourly(lat, lon),
+    ]);
     if (!res.ok) throw new Error('Weather service unavailable');
     const data = await res.json();
     if (!data.hourly || !data.hourly.time || !data.hourly.time.length) throw new Error('No forecast data');
+    return { hourly: data.hourly, aqiHourly };
+  }
 
-    const times = data.hourly.time;
-    let bestIdx = 0, bestDiffMs = Infinity;
-    times.forEach((t, i) => {
-      const diff = Math.abs(new Date(t).getTime() - target.getTime());
-      if (diff < bestDiffMs) { bestDiffMs = diff; bestIdx = i; }
-    });
+  // Fetches weather for a location and fills in the Heat Calculator form. If
+  // a run date/time is selected in the "Run Date & Time" fields, pulls the
+  // closest forecasted hour instead of current conditions — both share the
+  // same lat/lon lookup flow (geolocation or ZIP), so the date/time applies
+  // no matter which one the user picked.
+  async function applyWeatherFromCoords(lat, lon) {
+    const dtStr  = getSelectedRunDatetimeStr();
+    const target = dtStr ? new Date(dtStr) : new Date();
+
+    const { hourly, aqiHourly } = await fetchWeatherAndAqi(lat, lon);
+
+    const { bestIdx, bestDiffMs } = closestTimeIndex(hourly.time, target);
+    const referenceIso = hourly.time[bestIdx];
 
     if (dtStr && bestDiffMs > 3 * 3600000) throw new Error('OUT_OF_RANGE');
 
     fillWeatherFields(
-      data.hourly.temperature_2m[bestIdx],
-      data.hourly.dew_point_2m[bestIdx],
-      data.hourly.relative_humidity_2m[bestIdx]
+      hourly.temperature_2m[bestIdx],
+      hourly.dew_point_2m[bestIdx],
+      hourly.relative_humidity_2m[bestIdx]
     );
-    renderHeatRiskChart(data.hourly, times[bestIdx]);
-    return { forecast: !!dtStr, time: times[bestIdx] };
+    heatChart.render(hourly, referenceIso, aqiHourly, document.getElementById('heat-intensity').value);
+    renderAqiBadge(HEAT_AQI_IDS, aqiHourly, referenceIso);
+    return { forecast: !!dtStr, time: referenceIso };
+  }
+
+  // Read-only counterpart for the "Current Conditions" panel: always "now",
+  // no form fields to fill, no pace-adjustment math shown.
+  async function fetchCurrentConditions(lat, lon) {
+    const { hourly, aqiHourly } = await fetchWeatherAndAqi(lat, lon);
+    const { bestIdx } = closestTimeIndex(hourly.time, new Date());
+    const referenceIso = hourly.time[bestIdx];
+
+    renderConditionBadge(HOME_COND_IDS, hourly.temperature_2m[bestIdx], hourly.dew_point_2m[bestIdx]);
+    renderAqiBadge(HOME_AQI_IDS, aqiHourly, referenceIso);
+    homeChart.render(hourly, referenceIso, aqiHourly, '');
+    return { forecast: false };
+  }
+
+  // ── Air quality badge ──────────────────────────────────────────────────────────
+  // Category names, ranges, and health messages are the official EPA/AirNow
+  // AQI categories (airnow.gov/aqi/aqi-basics), collapsed from their 6 official
+  // colors (green/yellow/orange/red/purple/maroon) down to the 4 requested
+  // here — the top 3 (Unhealthy, Very Unhealthy, Hazardous) all render red.
+
+  function getAqiTier(aqi) {
+    if (aqi <= 50)  return { label: 'Good', cls: 'aqi-good',
+      desc: 'Air quality is satisfactory, and air pollution poses little or no risk.' };
+    if (aqi <= 100) return { label: 'Moderate', cls: 'aqi-moderate',
+      desc: 'Acceptable air quality; unusually sensitive people should consider limiting prolonged outdoor exertion.' };
+    if (aqi <= 150) return { label: 'Unhealthy for Sensitive Groups', cls: 'aqi-orange',
+      desc: 'Sensitive groups (heart or lung disease, older adults, children) may experience health effects.' };
+    if (aqi <= 200) return { label: 'Unhealthy', cls: 'aqi-red',
+      desc: 'Some members of the general public may experience health effects; sensitive groups may experience more serious effects.' };
+    if (aqi <= 300) return { label: 'Very Unhealthy', cls: 'aqi-red',
+      desc: 'Health alert: the risk of health effects is increased for everyone.' };
+    return { label: 'Hazardous', cls: 'aqi-red',
+      desc: 'Health warning of emergency conditions: everyone is more likely to be affected.' };
+  }
+
+  function renderAqiBadge(ids, aqiHourly, referenceIso) {
+    const row = document.getElementById(ids.row);
+    if (!aqiHourly) { row.classList.add('hidden'); return; }
+
+    const { bestIdx, bestDiffMs } = closestTimeIndex(aqiHourly.time, new Date(referenceIso));
+    const aqi = aqiHourly.us_aqi[bestIdx];
+    if (bestDiffMs > 3 * 3600000 || aqi == null) { row.classList.add('hidden'); return; }
+
+    const tier = getAqiTier(aqi);
+    const badge = document.getElementById(ids.badge);
+    badge.textContent = `AQI ${Math.round(aqi)} — ${tier.label}`;
+    badge.className   = `heat-cond-badge ${tier.cls}`;
+    document.getElementById(ids.desc).textContent = tier.desc;
+    row.classList.remove('hidden');
+  }
+
+  function renderConditionBadge(ids, temp, dp) {
+    const condition = getCondition(temp, dp);
+    const badge = document.getElementById(ids.badge);
+    badge.textContent = condition.label;
+    badge.className   = `heat-cond-badge ${condition.cls}`;
+    document.getElementById(ids.desc).textContent = condition.desc;
+    return condition;
   }
 
   // ── Heat risk by hour chart (6am–10pm) ────────────────────────────────────────
 
   const CHART_START_HOUR = 6;
   const CHART_END_HOUR   = 22;
-
-  let chartRows          = []; // current day's [{ hour, temp, dew, rh, adjPct, condition }, …]
-  let chartInspectedHour = null;
 
   function formatHourLabel(hour) {
     if (hour === 0) return '12a';
@@ -310,100 +404,181 @@
     'cond-danger':   100,
   };
 
-  function renderHeatRiskChart(hourly, referenceIso) {
-    const container = document.getElementById('heat-risk-chart');
-    const barsEl     = document.getElementById('heat-risk-chart-bars');
-    const hoursEl    = document.getElementById('heat-risk-chart-hours');
-    const dateEl     = document.getElementById('heat-risk-chart-date');
+  // Same idea for the AQI bar, ordered to match getAqiTier()'s severity.
+  const AQI_TIER_HEIGHT_PCT = {
+    'aqi-good':     20,
+    'aqi-moderate': 47,
+    'aqi-orange':   73,
+    'aqi-red':     100,
+  };
 
-    const day       = referenceIso.slice(0, 10); // "YYYY-MM-DD", local to the run location
-    const intensity = document.getElementById('heat-intensity').value;
+  // Builds a chart controller bound to one set of DOM ids, so the same
+  // rendering logic can drive two independent chart instances on the same
+  // page (the heat calculator's and the home screen's) without their click
+  // handlers or "currently inspected hour" state leaking into each other.
+  // `intensity` may be '' (home screen has no workout-type selector) —
+  // calcAdjPct treats that as a neutral 1.0 multiplier; showPaceAdjustment
+  // controls whether that number is surfaced in the UI at all, since it's
+  // only meaningful once a workout type has actually been chosen.
+  function createRiskChart(ids, { showPaceAdjustment }) {
+    let rows = [];
 
-    const rows = [];
-    hourly.time.forEach((t, i) => {
-      if (!t.startsWith(day)) return;
-      const hour = parseInt(t.slice(11, 13), 10);
-      if (hour < CHART_START_HOUR || hour > CHART_END_HOUR) return;
-      const temp = hourly.temperature_2m[i];
-      const dew  = hourly.dew_point_2m[i];
-      const rh   = hourly.relative_humidity_2m[i];
-      rows.push({
-        hour, temp, dew, rh,
-        adjPct: calcAdjPct(temp, dew, intensity),
-        condition: getCondition(temp, dew),
+    function render(hourly, referenceIso, aqiHourly, intensity) {
+      const container = document.getElementById(ids.container);
+      const legendEl   = document.getElementById(ids.legend);
+      const barsEl     = document.getElementById(ids.bars);
+      const hoursEl    = document.getElementById(ids.hours);
+      const dateEl     = document.getElementById(ids.date);
+
+      const day = referenceIso.slice(0, 10); // "YYYY-MM-DD", local to the run location
+
+      // AQI's forecast horizon is often shorter than weather's in practice
+      // (see fetchAqiHourly) — build an hour→AQI lookup for this same day so
+      // each heat-risk row can carry a matching AQI value only where one exists.
+      const aqiByHour = {};
+      if (aqiHourly) {
+        aqiHourly.time.forEach((t, i) => {
+          if (!t.startsWith(day)) return;
+          aqiByHour[parseInt(t.slice(11, 13), 10)] = aqiHourly.us_aqi[i];
+        });
+      }
+
+      rows = [];
+      hourly.time.forEach((t, i) => {
+        if (!t.startsWith(day)) return;
+        const hour = parseInt(t.slice(11, 13), 10);
+        if (hour < CHART_START_HOUR || hour > CHART_END_HOUR) return;
+        const temp = hourly.temperature_2m[i];
+        const dew  = hourly.dew_point_2m[i];
+        const rh   = hourly.relative_humidity_2m[i];
+        const aqi  = aqiByHour[hour];
+        rows.push({
+          hour, temp, dew, rh,
+          adjPct: calcAdjPct(temp, dew, intensity),
+          condition: getCondition(temp, dew),
+          aqi: aqi != null ? aqi : null,
+          aqiTier: aqi != null ? getAqiTier(aqi) : null,
+        });
       });
-    });
 
-    chartRows = rows;
+      if (!rows.length) {
+        container.classList.add('hidden');
+        return;
+      }
 
-    if (!rows.length) {
-      container.classList.add('hidden');
-      return;
+      const selectedHour = parseInt(referenceIso.slice(11, 13), 10);
+      const hasAqi = rows.some((r) => r.aqi != null);
+
+      dateEl.textContent = new Date(referenceIso).toLocaleDateString(undefined, {
+        weekday: 'short', month: 'short', day: 'numeric',
+      });
+
+      legendEl.classList.toggle('hidden', !hasAqi);
+
+      barsEl.innerHTML = rows.map((r) => {
+        // Height tracks the same risk tier as the color (RISK_TIER_HEIGHT_PCT),
+        // not the raw adjPct — adjPct is a continuous, intensity-scaled pace
+        // penalty while the tier is a threshold-based environmental read that
+        // can trip on temp OR dew point alone. Driving height off adjPct while
+        // color came from the tier meant a lower (safer-looking) bar could still
+        // be the more severe color, since the two don't always move together.
+        const heightPct = RISK_TIER_HEIGHT_PCT[r.condition.cls] ?? 50;
+        const paceAdjText = showPaceAdjustment ? `, +${r.adjPct.toFixed(1)}% pace adjustment` : '';
+        const heatBar = `
+          <div
+            class="heat-risk-bar heat-risk-bar-heat ${r.condition.cls}"
+            style="height:${heightPct}%"
+            title="${formatHourLabel(r.hour)} heat risk: ${r.condition.label}${paceAdjText}"
+          ></div>
+        `;
+        const aqiBar = !hasAqi ? '' : r.aqiTier
+          ? `
+            <div
+              class="heat-risk-bar heat-risk-bar-aqi ${r.aqiTier.cls}"
+              style="height:${AQI_TIER_HEIGHT_PCT[r.aqiTier.cls]}%"
+              title="${formatHourLabel(r.hour)} air quality: AQI ${Math.round(r.aqi)} (${r.aqiTier.label})"
+            ></div>
+          `
+          : `
+            <div
+              class="heat-risk-bar heat-risk-bar-aqi heat-risk-bar-aqi-none"
+              title="${formatHourLabel(r.hour)} air quality: not available"
+            ></div>
+          `;
+        return `
+          <div class="heat-risk-bar-col" data-hour="${r.hour}">
+            <div class="heat-risk-bar-pair">${heatBar}${aqiBar}</div>
+          </div>
+        `;
+      }).join('');
+
+      hoursEl.innerHTML = rows.map((r) => `
+        <span class="heat-risk-bar-hour ${r.hour === selectedHour ? 'heat-risk-bar-hour-selected' : ''}" data-hour="${r.hour}">${formatHourLabel(r.hour)}</span>
+      `).join('');
+
+      barsEl.querySelectorAll('.heat-risk-bar-col').forEach((col) => {
+        col.addEventListener('click', () => detail(parseInt(col.dataset.hour, 10)));
+      });
+
+      container.classList.remove('hidden');
+
+      // Default the detail panel to the selected run time (or the first bar,
+      // if the selected time falls outside the chart's 6am–10pm window).
+      const defaultHour = rows.some((r) => r.hour === selectedHour) ? selectedHour : rows[0].hour;
+      detail(defaultHour);
     }
 
-    const selectedHour = parseInt(referenceIso.slice(11, 13), 10);
+    // Shows temp/humidity/condition for a clicked hour, and marks that bar +
+    // hour label (within THIS chart instance only) as currently inspected.
+    function detail(hour) {
+      const row      = rows.find((r) => r.hour === hour);
+      const detailEl = document.getElementById(ids.detail);
+      if (!row || !detailEl) return;
 
-    dateEl.textContent = new Date(referenceIso).toLocaleDateString(undefined, {
-      weekday: 'short', month: 'short', day: 'numeric',
-    });
+      document.querySelectorAll(`#${ids.bars} .heat-risk-bar-col`).forEach((col) => {
+        col.classList.toggle('heat-risk-col-active', parseInt(col.dataset.hour, 10) === hour);
+      });
+      document.querySelectorAll(`#${ids.hours} .heat-risk-bar-hour`).forEach((el) => {
+        el.classList.toggle('heat-risk-bar-hour-active', parseInt(el.dataset.hour, 10) === hour);
+      });
 
-    barsEl.innerHTML = rows.map((r) => {
-      // Height tracks the same risk tier as the color (RISK_TIER_HEIGHT_PCT),
-      // not the raw adjPct — adjPct is a continuous, intensity-scaled pace
-      // penalty while the tier is a threshold-based environmental read that
-      // can trip on temp OR dew point alone. Driving height off adjPct while
-      // color came from the tier meant a lower (safer-looking) bar could still
-      // be the more severe color, since the two don't always move together.
-      const heightPct = RISK_TIER_HEIGHT_PCT[r.condition.cls] ?? 50;
-      return `
-        <div class="heat-risk-bar-col" data-hour="${r.hour}">
-          <div
-            class="heat-risk-bar ${r.condition.cls} ${r.hour === selectedHour ? 'heat-risk-bar-selected' : ''}"
-            style="height:${heightPct}%"
-            title="${formatHourLabel(r.hour)}: ${r.condition.label}, +${r.adjPct.toFixed(1)}% pace adjustment"
-          ></div>
-        </div>
+      const aqiPart = row.aqiTier
+        ? ` &mdash; <span class="${row.aqiTier.cls}">AQI ${Math.round(row.aqi)} (${row.aqiTier.label})</span>`
+        : '';
+      const paceAdjPart = showPaceAdjustment ? `, +${row.adjPct.toFixed(1)}% pace adjustment` : '';
+
+      detailEl.innerHTML = `
+        <strong>${formatHourLabel(row.hour)}</strong> &mdash;
+        ${Math.round(row.temp)}&deg;F, ${Math.round(row.rh)}% humidity (dew point ${Math.round(row.dew)}&deg;F)
+        &mdash; <span class="${row.condition.cls}">${row.condition.label}</span>${paceAdjPart}${aqiPart}
       `;
-    }).join('');
+    }
 
-    hoursEl.innerHTML = rows.map((r) => `
-      <span class="heat-risk-bar-hour ${r.hour === selectedHour ? 'heat-risk-bar-hour-selected' : ''}" data-hour="${r.hour}">${formatHourLabel(r.hour)}</span>
-    `).join('');
-
-    barsEl.querySelectorAll('.heat-risk-bar-col').forEach((col) => {
-      col.addEventListener('click', () => renderChartDetail(parseInt(col.dataset.hour, 10)));
-    });
-
-    container.classList.remove('hidden');
-
-    // Default the detail panel to the selected run time (or the first bar,
-    // if the selected time falls outside the chart's 6am–10pm window).
-    const defaultHour = rows.some((r) => r.hour === selectedHour) ? selectedHour : rows[0].hour;
-    renderChartDetail(defaultHour);
+    return { render };
   }
 
-  // Shows temp/humidity/condition for a clicked hour, and marks that bar +
-  // hour label as the one currently being inspected.
-  function renderChartDetail(hour) {
-    const row      = chartRows.find((r) => r.hour === hour);
-    const detailEl = document.getElementById('heat-risk-chart-detail');
-    if (!row || !detailEl) return;
+  // Element ids for the two places this feature set appears: the full Heat
+  // Calculator tab (miles/pace/intensity, date+time picker, pace-adjustment
+  // numbers) and the read-only "Current Conditions" panel on the sign-in
+  // screen (location only, always "now", no pace-adjustment math shown).
+  const HEAT_COND_IDS   = { badge: 'heat-cond-badge', desc: 'heat-cond-desc' };
+  const HEAT_AQI_IDS    = { row: 'heat-aqi-row', badge: 'heat-aqi-badge', desc: 'heat-aqi-desc' };
+  const HEAT_CHART_IDS  = {
+    container: 'heat-risk-chart', legend: 'heat-risk-chart-legend',
+    bars: 'heat-risk-chart-bars', hours: 'heat-risk-chart-hours',
+    date: 'heat-risk-chart-date', detail: 'heat-risk-chart-detail',
+  };
 
-    chartInspectedHour = hour;
+  const HOME_COND_IDS  = { badge: 'cc-cond-badge', desc: 'cc-cond-desc' };
+  const HOME_AQI_IDS   = { row: 'cc-aqi-row', badge: 'cc-aqi-badge', desc: 'cc-aqi-desc' };
+  const HOME_CHART_IDS = {
+    container: 'cc-risk-chart', legend: 'cc-risk-chart-legend',
+    bars: 'cc-risk-chart-bars', hours: 'cc-risk-chart-hours',
+    date: 'cc-risk-chart-date', detail: 'cc-risk-chart-detail',
+  };
 
-    document.querySelectorAll('.heat-risk-bar-col').forEach((col) => {
-      col.classList.toggle('heat-risk-col-active', parseInt(col.dataset.hour, 10) === hour);
-    });
-    document.querySelectorAll('.heat-risk-bar-hour').forEach((el) => {
-      el.classList.toggle('heat-risk-bar-hour-active', parseInt(el.dataset.hour, 10) === hour);
-    });
-
-    detailEl.innerHTML = `
-      <strong>${formatHourLabel(row.hour)}</strong> &mdash;
-      ${Math.round(row.temp)}&deg;F, ${Math.round(row.rh)}% humidity (dew point ${Math.round(row.dew)}&deg;F)
-      &mdash; <span class="${row.condition.cls}">${row.condition.label}</span>, +${row.adjPct.toFixed(1)}% pace adjustment
-    `;
-  }
+  const heatChart = createRiskChart(HEAT_CHART_IDS, { showPaceAdjustment: true });
+  const homeChart = createRiskChart(HOME_CHART_IDS, { showPaceAdjustment: false });
 
   function weatherStatusMessage(result, sourceLabel) {
     if (!result.forecast) return `Filled in from ${sourceLabel}.`;
@@ -421,12 +596,19 @@
     return fallback;
   }
 
-  function initWeatherButton() {
-    const btn        = document.getElementById('btn-use-weather');
-    const status      = document.getElementById('heat-weather-status');
-    const zipInput    = document.getElementById('heat-zip-input');
-    const zipBtn      = document.getElementById('btn-zip-fetch');
-    const zipSavedRow = document.getElementById('heat-zip-saved');
+  // Wires up one location-resolution widget (the "Use my location" button +
+  // ZIP input/button + saved-ZIP chips, optionally a date/time picker), bound
+  // to a set of DOM ids. `onResolve(lat, lon)` does whatever that particular
+  // widget needs once a location is known (fill the calculator form and
+  // render its chart, or — for the read-only home screen panel — just render
+  // the badges/chart). Shared saved-ZIP storage means a ZIP saved from either
+  // widget shows up as a chip in both.
+  function initLocationControls(ids, onResolve, opts) {
+    const btn        = document.getElementById(ids.useLocationBtn);
+    const status      = document.getElementById(ids.status);
+    const zipInput    = document.getElementById(ids.zipInput);
+    const zipBtn      = document.getElementById(ids.zipBtn);
+    const zipSavedRow = document.getElementById(ids.zipSaved);
 
     function setStatus(msg, isError) {
       status.textContent = msg;
@@ -460,7 +642,7 @@
       setStatus(`Fetching weather for ${zip}…`, false);
       try {
         const { lat, lon } = cached || await geocodeZip(zip);
-        const result = await applyWeatherFromCoords(lat, lon);
+        const result = await onResolve(lat, lon);
         saveZip(zip, lat, lon);
         renderSavedZips();
         setStatus(weatherStatusMessage(result, zip), false);
@@ -484,7 +666,7 @@
         async (pos) => {
           setStatus('Fetching weather…', false);
           try {
-            const result = await applyWeatherFromCoords(pos.coords.latitude, pos.coords.longitude);
+            const result = await onResolve(pos.coords.latitude, pos.coords.longitude);
             setStatus(weatherStatusMessage(result, 'your current location'), false);
           } catch (err) {
             setStatus(weatherErrorMessage(err, 'Could not fetch local weather — enter it manually.'), true);
@@ -518,29 +700,36 @@
       if (e.key === 'Enter') zipBtn.click();
     });
 
-    const dateInput = document.getElementById('heat-weather-date');
-    const timeSelect = document.getElementById('heat-weather-time');
-    const now = new Date();
-    dateInput.min = toDateValue(now);
-    dateInput.max = toDateValue(new Date(now.getTime() + FORECAST_MAX_DAYS * 86400000));
+    if (opts && opts.includeDateTime) {
+      const dateInput = document.getElementById(ids.dateInput);
+      const timeSelect = document.getElementById(ids.timeSelect);
+      const now = new Date();
+      dateInput.min = toDateValue(now);
+      dateInput.max = toDateValue(new Date(now.getTime() + FORECAST_MAX_DAYS * 86400000));
 
-    // Native datetime-local pickers don't reliably honor a `step` — mobile
-    // browsers in particular still show minute-by-minute wheels. A plain
-    // <select> of fixed half-hour marks guarantees the 30-min granularity
-    // on every platform. Bounded to the same 6am–10pm window as the heat
-    // risk chart, so every selectable time actually has a bar to show for it.
-    for (let mins = CHART_START_HOUR * 60; mins <= CHART_END_HOUR * 60; mins += 30) {
-      const h24 = Math.floor(mins / 60);
-      const m   = mins % 60;
-      const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-      const ampm = h24 < 12 ? 'AM' : 'PM';
-      const opt = document.createElement('option');
-      opt.value = `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      opt.textContent = `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
-      timeSelect.appendChild(opt);
+      // Native datetime-local pickers don't reliably honor a `step` — mobile
+      // browsers in particular still show minute-by-minute wheels. A plain
+      // <select> of fixed half-hour marks guarantees the 30-min granularity
+      // on every platform. Bounded to the same 6am–10pm window as the heat
+      // risk chart, so every selectable time actually has a bar to show for it.
+      for (let mins = CHART_START_HOUR * 60; mins <= CHART_END_HOUR * 60; mins += 30) {
+        const h24 = Math.floor(mins / 60);
+        const m   = mins % 60;
+        const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+        const ampm = h24 < 12 ? 'AM' : 'PM';
+        const opt = document.createElement('option');
+        opt.value = `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        opt.textContent = `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+        timeSelect.appendChild(opt);
+      }
     }
 
     renderSavedZips();
+
+    if (opts && opts.autoLoadDefault) {
+      const zips = loadSavedZips();
+      if (zips.length) loadZip(zips[0].zip);
+    }
   }
 
   // ── Humidity input mode ───────────────────────────────────────────────────────
@@ -619,12 +808,7 @@
     const adjPaceSec  = paceSecMi * (1 + adjPct / 100);
     const goalTimeSec = paceSecMi * miles;
     const adjTimeSec  = adjPaceSec * miles;
-    const condition   = getCondition(temp, dp);
-
-    const badge = document.getElementById('heat-cond-badge');
-    badge.textContent = condition.label;
-    badge.className   = `heat-cond-badge ${condition.cls}`;
-    document.getElementById('heat-cond-desc').textContent = condition.desc;
+    const condition   = renderConditionBadge(HEAT_COND_IDS, temp, dp);
 
     document.getElementById('heat-adj-pct').textContent  = adjPct > 0 ? `+${adjPct.toFixed(1)}%` : '0%';
     document.getElementById('heat-adj-pace').textContent = fmtMMSS(adjPaceSec) + '/mi';
@@ -687,10 +871,24 @@
 
   // ── Init ──────────────────────────────────────────────────────────────────────
 
+  const HEAT_LOCATION_IDS = {
+    useLocationBtn: 'btn-use-weather', status: 'heat-weather-status',
+    zipInput: 'heat-zip-input', zipBtn: 'btn-zip-fetch', zipSaved: 'heat-zip-saved',
+    dateInput: 'heat-weather-date', timeSelect: 'heat-weather-time',
+  };
+  const HOME_LOCATION_IDS = {
+    useLocationBtn: 'cc-btn-use-weather', status: 'cc-weather-status',
+    zipInput: 'cc-zip-input', zipBtn: 'cc-btn-zip-fetch', zipSaved: 'cc-zip-saved',
+  };
+
   document.addEventListener('DOMContentLoaded', () => {
     initTabs();
     initHumidityToggle();
-    initWeatherButton();
+    initLocationControls(HEAT_LOCATION_IDS, applyWeatherFromCoords, { includeDateTime: true });
+    // Current Conditions panel: no workout inputs, auto-loads the most
+    // recently used (or default-seeded) ZIP on load so it's never empty.
+    initLocationControls(HOME_LOCATION_IDS, fetchCurrentConditions, { autoLoadDefault: true });
+
     ['heat-miles', 'heat-pace', 'heat-temp', 'heat-dew', 'heat-rh', 'heat-intensity'].forEach((id) => {
       document.getElementById(id).addEventListener('input', calculate);
     });

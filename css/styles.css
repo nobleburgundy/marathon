@@ -377,6 +377,26 @@ html, body {
   max-width: 520px;
 }
 
+.current-conditions {
+  max-width: 640px;
+  margin-bottom: 56px;
+}
+
+.home-explore-label {
+  margin-bottom: 20px;
+}
+
+.home-explore {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 640px;
+}
+
+.home-link-card .wizard-option-label {
+  color: var(--text);
+}
+
 .signin-or {
   display: flex;
   align-items: center;
@@ -855,6 +875,17 @@ html, body {
 .cond-very-hard { color: var(--red);   border-color: var(--red);   background: #fde8eb; }
 .cond-danger    { color: var(--red);   border-color: var(--red);   background: #fad4d9; }
 
+/* AQI badge — 4-color scale (EPA's 6 official categories collapse into
+   green/yellow/orange/red; label text keeps the precise official name). */
+.aqi-good     { color: var(--green);  border-color: var(--green);  background: #e6f4ed; }
+.aqi-moderate { color: #a08000;       border-color: #a08000;       background: #fbf6dc; }
+.aqi-orange   { color: #b86d10;       border-color: #b86d10;       background: #fdf3e3; }
+.aqi-red      { color: var(--red);    border-color: var(--red);    background: #fde8eb; }
+
+.heat-condition-row + .heat-condition-row {
+  margin-top: -24px;
+}
+
 .heat-cond-desc {
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
@@ -1014,6 +1045,31 @@ html, body {
   text-transform: none;
 }
 
+.heat-risk-chart-legend {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 12px;
+}
+
+.heat-risk-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text3);
+}
+
+.heat-risk-legend-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.heat-risk-legend-heat { background: var(--red); }
+.heat-risk-legend-aqi  { background: var(--text3); opacity: 0.5; }
+
 .heat-risk-chart-bars {
   display: flex;
   align-items: flex-end;
@@ -1027,16 +1083,24 @@ html, body {
   min-width: 0;
   height: 100%;
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
   cursor: pointer;
   padding: 4px 0;
 }
 
+.heat-risk-bar-pair {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+}
+
 .heat-risk-bar {
   width: 100%;
-  max-width: 16px;
+  max-width: 8px;
   border-radius: 2px 2px 0 0;
   background: var(--border);
 }
@@ -1048,9 +1112,21 @@ html, body {
 .heat-risk-bar.cond-very-hard { background: var(--red); }
 .heat-risk-bar.cond-danger    { background: var(--red); }
 
-.heat-risk-bar-selected {
-  outline: 2px solid var(--text);
-  outline-offset: 1px;
+.heat-risk-bar.aqi-good     { background: var(--green); }
+.heat-risk-bar.aqi-moderate { background: #d9b400; }
+.heat-risk-bar.aqi-orange   { background: #b86d10; }
+.heat-risk-bar.aqi-red      { background: var(--red); }
+
+/* AQI bar is visually softer than heat (lower opacity + hollow look) so the
+   two series stay tellable apart even where their color tiers overlap. */
+.heat-risk-bar-aqi {
+  opacity: 0.55;
+}
+
+.heat-risk-bar-aqi-none {
+  height: 8% !important;
+  background: var(--border);
+  opacity: 0.4;
 }
 
 .heat-risk-col-active .heat-risk-bar {
@@ -1102,7 +1178,11 @@ html, body {
 .heat-risk-chart-detail .cond-moderate,
 .heat-risk-chart-detail .cond-tough,
 .heat-risk-chart-detail .cond-very-hard,
-.heat-risk-chart-detail .cond-danger {
+.heat-risk-chart-detail .cond-danger,
+.heat-risk-chart-detail .aqi-good,
+.heat-risk-chart-detail .aqi-moderate,
+.heat-risk-chart-detail .aqi-orange,
+.heat-risk-chart-detail .aqi-red {
   background: none;
   border: none;
   font-weight: 700;
