@@ -45,7 +45,7 @@
       <!-- Home view -->
       <div id="home-view">
 
-        <p class="section-label">Current Conditions</p>
+        <p class="section-label">Current Conditions<span id="cc-location-suffix"></span></p>
 
         <div class="current-conditions" id="current-conditions">
           <div class="heat-weather-row">
@@ -68,6 +68,7 @@
             <span class="heat-cond-badge" id="cc-aqi-badge"></span>
             <span class="heat-cond-desc" id="cc-aqi-desc"></span>
           </div>
+          <p id="cc-aqi-note" class="heat-aqi-note hidden"></p>
 
           <div id="cc-risk-chart" class="heat-risk-chart hidden">
             <p class="heat-risk-chart-label">Heat Risk by Hour &nbsp;<span id="cc-risk-chart-date"></span></p>
@@ -334,6 +335,7 @@
             <span class="heat-cond-badge" id="heat-aqi-badge"></span>
             <span class="heat-cond-desc" id="heat-aqi-desc"></span>
           </div>
+          <p id="heat-aqi-note" class="heat-aqi-note hidden"></p>
 
           <div class="summary-rows heat-stats">
             <div class="summary-row">

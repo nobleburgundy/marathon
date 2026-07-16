@@ -886,6 +886,18 @@ html, body {
   margin-top: -24px;
 }
 
+.heat-aqi-note {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text3);
+  line-height: 1.5;
+  margin: -20px 0 36px;
+}
+
+.heat-aqi-note a {
+  color: var(--text2);
+}
+
 .heat-cond-desc {
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;

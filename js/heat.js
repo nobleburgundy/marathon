@@ -274,6 +274,62 @@
     }
   }
 
+  // The official overall AQI for a location is the max across whatever
+  // pollutants were monitored/forecasted there (PM2.5, ozone, PM10, …) — a
+  // -1 AQI from AirNow means "not available yet" for that entry, not zero.
+  function maxAqiFromAirNowEntries(entries) {
+    if (!Array.isArray(entries) || !entries.length) return null;
+    const valid = entries.filter((e) => typeof e.AQI === 'number' && e.AQI >= 0);
+    if (!valid.length) return null;
+    return Math.max(...valid.map((e) => e.AQI));
+  }
+
+  async function fetchAirNowCurrentAqi(lat, lon) {
+    try {
+      const url = `https://www.airnowapi.org/aq/observation/latLong/current/`
+        + `?format=application/json&latitude=${lat}&longitude=${lon}&distance=25&API_KEY=${CONFIG.airNowApiKey}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      return maxAqiFromAirNowEntries(await res.json());
+    } catch {
+      return null;
+    }
+  }
+
+  // Real EPA ground-station AQI (ambient, not modeled) from AirNow.gov, used
+  // in preference to Open-Meteo's modeled estimate whenever there's any real
+  // AirNow reading for the day in question — Open-Meteo's model has proven
+  // much less accurate during fast-changing events like wildfire smoke, so
+  // it's kept strictly as a last resort for dates truly beyond AirNow's
+  // forecast horizon (identified by AirNow returning zero entries at all for
+  // that date, vs. AQI: -1 placeholders when it knows the date but hasn't
+  // issued numbers for it yet — in the latter case we still prefer today's
+  // real current observation, flat across the day, over the modeled curve).
+  async function fetchAirNowOverride(lat, lon, referenceIso) {
+    if (!CONFIG.airNowApiKey) return null;
+    const day = referenceIso.slice(0, 10);
+    try {
+      const url = `https://www.airnowapi.org/aq/forecast/latLong/`
+        + `?format=application/json&latitude=${lat}&longitude=${lon}&date=${day}&distance=25&API_KEY=${CONFIG.airNowApiKey}`;
+      const res = await fetch(url);
+      const data = res.ok ? await res.json() : [];
+      const dayEntries = Array.isArray(data) ? data.filter((e) => e.DateForecast === day) : [];
+
+      const forecastAqi = maxAqiFromAirNowEntries(dayEntries);
+      if (forecastAqi != null) return { aqi: forecastAqi, day, viaCurrentObservation: false };
+
+      if (dayEntries.length) {
+        // AirNow knows this date but hasn't issued real numbers for it yet.
+        const currentAqi = await fetchAirNowCurrentAqi(lat, lon);
+        if (currentAqi != null) return { aqi: currentAqi, day, viaCurrentObservation: true };
+      }
+
+      return null; // genuinely beyond AirNow's forecast horizon
+    } catch {
+      return null;
+    }
+  }
+
   // Fetches the weather hourly series + AQI hourly series for a location in
   // parallel. AQI failure never blocks weather (see fetchAqiHourly); weather
   // failure throws, since there's nothing to show without it.
@@ -317,8 +373,9 @@
       hourly.dew_point_2m[bestIdx],
       hourly.relative_humidity_2m[bestIdx]
     );
-    heatChart.render(hourly, referenceIso, aqiHourly, document.getElementById('heat-intensity').value);
-    renderAqiBadge(HEAT_AQI_IDS, aqiHourly, referenceIso);
+    const airNowOverride = await fetchAirNowOverride(lat, lon, referenceIso);
+    heatChart.render(hourly, referenceIso, aqiHourly, document.getElementById('heat-intensity').value, airNowOverride);
+    renderAqiBadge(HEAT_AQI_IDS, aqiHourly, referenceIso, airNowOverride);
     return { forecast: !!dtStr, time: referenceIso };
   }
 
@@ -330,8 +387,9 @@
     const referenceIso = hourly.time[bestIdx];
 
     renderConditionBadge(HOME_COND_IDS, hourly.temperature_2m[bestIdx], hourly.dew_point_2m[bestIdx]);
-    renderAqiBadge(HOME_AQI_IDS, aqiHourly, referenceIso);
-    homeChart.render(hourly, referenceIso, aqiHourly, '');
+    const airNowOverride = await fetchAirNowOverride(lat, lon, referenceIso);
+    renderAqiBadge(HOME_AQI_IDS, aqiHourly, referenceIso, airNowOverride);
+    homeChart.render(hourly, referenceIso, aqiHourly, '', airNowOverride);
     return { forecast: false };
   }
 
@@ -356,13 +414,18 @@
       desc: 'Health warning of emergency conditions: everyone is more likely to be affected.' };
   }
 
-  function renderAqiBadge(ids, aqiHourly, referenceIso) {
-    const row = document.getElementById(ids.row);
-    if (!aqiHourly) { row.classList.add('hidden'); return; }
+  function renderAqiBadge(ids, aqiHourly, referenceIso, airNowOverride) {
+    const row  = document.getElementById(ids.row);
+    const note = document.getElementById(ids.note);
 
-    const { bestIdx, bestDiffMs } = closestTimeIndex(aqiHourly.time, new Date(referenceIso));
-    const aqi = aqiHourly.us_aqi[bestIdx];
-    if (bestDiffMs > 3 * 3600000 || aqi == null) { row.classList.add('hidden'); return; }
+    let aqi = airNowOverride ? airNowOverride.aqi : null;
+    if (aqi == null) {
+      if (!aqiHourly) { row.classList.add('hidden'); note.classList.add('hidden'); return; }
+      const { bestIdx, bestDiffMs } = closestTimeIndex(aqiHourly.time, new Date(referenceIso));
+      const modeled = aqiHourly.us_aqi[bestIdx];
+      if (bestDiffMs > 3 * 3600000 || modeled == null) { row.classList.add('hidden'); note.classList.add('hidden'); return; }
+      aqi = modeled;
+    }
 
     const tier = getAqiTier(aqi);
     const badge = document.getElementById(ids.badge);
@@ -370,6 +433,19 @@
     badge.className   = `heat-cond-badge ${tier.cls}`;
     document.getElementById(ids.desc).textContent = tier.desc;
     row.classList.remove('hidden');
+
+    if (airNowOverride && airNowOverride.viaCurrentObservation) {
+      note.textContent = 'Source: AirNow.gov current reading — a day-specific forecast hasn’t been issued yet for this date.';
+    } else if (airNowOverride) {
+      // Real EPA ground-station data — no lag caveat needed.
+      note.textContent = 'Source: AirNow.gov (EPA ground-station monitor).';
+    } else {
+      // This is a modeled (CAMS-based) estimate, not an EPA ground-station
+      // reading — it can significantly underestimate fast-moving events like
+      // wildfire smoke, which real monitors (AirNow) pick up much faster.
+      note.innerHTML = 'Modeled estimate, not a ground-station reading &mdash; can lag real conditions during fast-changing events like wildfire smoke. Verify at <a href="https://www.airnow.gov/" target="_blank" rel="noopener">AirNow.gov</a>.';
+    }
+    note.classList.remove('hidden');
   }
 
   function renderConditionBadge(ids, temp, dp) {
@@ -423,7 +499,7 @@
   function createRiskChart(ids, { showPaceAdjustment }) {
     let rows = [];
 
-    function render(hourly, referenceIso, aqiHourly, intensity) {
+    function render(hourly, referenceIso, aqiHourly, intensity, airNowOverride) {
       const container = document.getElementById(ids.container);
       const legendEl   = document.getElementById(ids.legend);
       const barsEl     = document.getElementById(ids.bars);
@@ -441,6 +517,13 @@
           if (!t.startsWith(day)) return;
           aqiByHour[parseInt(t.slice(11, 13), 10)] = aqiHourly.us_aqi[i];
         });
+      }
+
+      // Real AirNow data (see fetchAirNowOverride) overrides the modeled
+      // Open-Meteo values for every hour of the day — AirNow has no hourly
+      // forecast resolution, only a whole-day value, so this is flat.
+      if (airNowOverride && airNowOverride.day === day) {
+        for (let h = CHART_START_HOUR; h <= CHART_END_HOUR; h++) aqiByHour[h] = airNowOverride.aqi;
       }
 
       rows = [];
@@ -559,10 +642,10 @@
 
   // Element ids for the two places this feature set appears: the full Heat
   // Calculator tab (miles/pace/intensity, date+time picker, pace-adjustment
-  // numbers) and the read-only "Current Conditions" panel on the sign-in
+  // numbers) and the read-only "Current Conditions" panel on the Home
   // screen (location only, always "now", no pace-adjustment math shown).
   const HEAT_COND_IDS   = { badge: 'heat-cond-badge', desc: 'heat-cond-desc' };
-  const HEAT_AQI_IDS    = { row: 'heat-aqi-row', badge: 'heat-aqi-badge', desc: 'heat-aqi-desc' };
+  const HEAT_AQI_IDS    = { row: 'heat-aqi-row', badge: 'heat-aqi-badge', desc: 'heat-aqi-desc', note: 'heat-aqi-note' };
   const HEAT_CHART_IDS  = {
     container: 'heat-risk-chart', legend: 'heat-risk-chart-legend',
     bars: 'heat-risk-chart-bars', hours: 'heat-risk-chart-hours',
@@ -570,7 +653,7 @@
   };
 
   const HOME_COND_IDS  = { badge: 'cc-cond-badge', desc: 'cc-cond-desc' };
-  const HOME_AQI_IDS   = { row: 'cc-aqi-row', badge: 'cc-aqi-badge', desc: 'cc-aqi-desc' };
+  const HOME_AQI_IDS   = { row: 'cc-aqi-row', badge: 'cc-aqi-badge', desc: 'cc-aqi-desc', note: 'cc-aqi-note' };
   const HOME_CHART_IDS = {
     container: 'cc-risk-chart', legend: 'cc-risk-chart-legend',
     bars: 'cc-risk-chart-bars', hours: 'cc-risk-chart-hours',
@@ -604,15 +687,22 @@
   // the badges/chart). Shared saved-ZIP storage means a ZIP saved from either
   // widget shows up as a chip in both.
   function initLocationControls(ids, onResolve, opts) {
-    const btn        = document.getElementById(ids.useLocationBtn);
-    const status      = document.getElementById(ids.status);
-    const zipInput    = document.getElementById(ids.zipInput);
-    const zipBtn      = document.getElementById(ids.zipBtn);
-    const zipSavedRow = document.getElementById(ids.zipSaved);
+    const btn           = document.getElementById(ids.useLocationBtn);
+    const status         = document.getElementById(ids.status);
+    const zipInput       = document.getElementById(ids.zipInput);
+    const zipBtn         = document.getElementById(ids.zipBtn);
+    const zipSavedRow    = document.getElementById(ids.zipSaved);
+    const locationLabel  = ids.locationLabel ? document.getElementById(ids.locationLabel) : null;
 
     function setStatus(msg, isError) {
       status.textContent = msg;
       status.classList.toggle('heat-weather-error', !!isError);
+    }
+
+    // e.g. "Current Conditions in 55409" — only known for ZIP lookups, since
+    // geolocation gives coordinates, not a ZIP to display.
+    function setLocationLabel(text) {
+      if (locationLabel) locationLabel.textContent = text;
     }
 
     function renderSavedZips() {
@@ -646,6 +736,7 @@
         saveZip(zip, lat, lon);
         renderSavedZips();
         setStatus(weatherStatusMessage(result, zip), false);
+        setLocationLabel(` in ${zip}`);
       } catch (err) {
         setStatus(weatherErrorMessage(err, 'Could not fetch weather for that ZIP.'), true);
       } finally {
@@ -668,6 +759,7 @@
           try {
             const result = await onResolve(pos.coords.latitude, pos.coords.longitude);
             setStatus(weatherStatusMessage(result, 'your current location'), false);
+            setLocationLabel(''); // geolocation gives coordinates, not a ZIP to show
           } catch (err) {
             setStatus(weatherErrorMessage(err, 'Could not fetch local weather — enter it manually.'), true);
           } finally {
@@ -879,6 +971,7 @@
   const HOME_LOCATION_IDS = {
     useLocationBtn: 'cc-btn-use-weather', status: 'cc-weather-status',
     zipInput: 'cc-zip-input', zipBtn: 'cc-btn-zip-fetch', zipSaved: 'cc-zip-saved',
+    locationLabel: 'cc-location-suffix',
   };
 
   document.addEventListener('DOMContentLoaded', () => {
