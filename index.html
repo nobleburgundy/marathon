@@ -45,6 +45,66 @@
       <!-- Home view -->
       <div id="home-view">
 
+        <!-- Default plan chooser (shown once, until the user picks or skips) -->
+        <div id="default-plan-chooser" class="default-plan-chooser hidden">
+          <p class="section-label">Select Default Marathon Plan</p>
+
+          <div id="chooser-step-pick">
+            <p class="plans-guide-intro">Show today&rsquo;s scheduled run right here on Home?</p>
+            <div class="wizard-options">
+              <button type="button" class="wizard-option" id="btn-choose-tcm">
+                <span class="wizard-option-label" id="choose-tcm-label"></span>
+                <span class="wizard-option-detail" id="choose-tcm-detail"></span>
+              </button>
+              <button type="button" class="wizard-option" id="btn-choose-skip">
+                <span class="wizard-option-label">Skip</span>
+                <span class="wizard-option-detail">Don&rsquo;t show a default plan on Home &mdash; you can turn this on later.</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Re-entry point for users who previously chose "Skip" -->
+        <div id="show-default-plan-link" class="show-default-plan-link hidden">
+          <button type="button" class="link-btn" id="btn-show-default-plan-picker">Show a default training plan on Home &rarr;</button>
+        </div>
+
+        <!-- Today's plan hero (once a default plan is configured) -->
+        <div id="today-plan" class="today-plan hidden">
+          <p class="section-label">Today&rsquo;s Plan<span class="today-plan-date" id="today-plan-date-suffix"></span></p>
+          <div class="today-plan-card">
+            <div class="today-plan-hero">
+              <span class="today-plan-hero-num" id="today-plan-miles">0</span>
+              <span class="today-plan-hero-unit" id="today-plan-unit">mi</span>
+            </div>
+            <div class="today-plan-meta">
+              <span class="today-plan-type" id="today-plan-type"></span>
+              <span class="today-plan-pace" id="today-plan-pace"></span>
+              <span class="today-plan-week" id="today-plan-week"></span>
+            </div>
+            <p class="today-plan-tip" id="today-plan-tip"></p>
+
+            <div id="today-week-chart" class="today-week-chart hidden">
+              <p class="today-week-chart-label">This Week <span id="today-week-total"></span></p>
+              <div class="week-cal" id="today-week-cal"></div>
+            </div>
+          </div>
+          <div class="today-plan-links">
+            <button type="button" class="link-btn" id="btn-edit-race-date">Update race date</button>
+            <button type="button" class="link-btn" id="btn-clear-default-plan">Change default plan</button>
+          </div>
+          <div id="today-plan-edit-date" class="today-plan-edit-date hidden">
+            <div class="form-group">
+              <label for="today-plan-race-date-input">Race Date</label>
+              <input type="date" id="today-plan-race-date-input" class="field">
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn" id="btn-save-race-date">Save</button>
+              <button type="button" class="btn secondary" id="btn-cancel-race-date">Cancel</button>
+            </div>
+          </div>
+        </div>
+
         <p class="section-label">Current Conditions<span id="cc-location-suffix"></span></p>
 
         <div class="current-conditions" id="current-conditions">

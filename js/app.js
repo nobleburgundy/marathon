@@ -14,6 +14,21 @@
 
 const STORAGE_CALENDAR = 'mp_calendar'; // preferred calendar ID only
 
+// Home screen "default plan" widget — separate from the calendar-linked flow
+// above, since it needs to render before (and without requiring) a Google
+// sign-in. STORAGE_DEFAULT_PLAN_CHOICE holds a planId once chosen, or 'skip'
+// once dismissed — either way the chooser never shows again after that.
+const STORAGE_DEFAULT_PLAN_CHOICE = 'mp_default_plan_choice';
+const STORAGE_DEFAULT_PLAN_SETUP  = 'mp_default_plan_setup'; // JSON {raceDate, secPerMile}
+const DEFAULT_PLAN_ID = 'hal-novice-2'; // "TCM Hal Higdon 2"
+
+// Baked-in race config for the one-click default plan option — this is the
+// plan/date already reflected in the linked Google Calendar, so picking
+// "TCM Hal Higdon 2" can load instantly with no extra setup step or sign-in.
+const DEFAULT_PLAN_CONFIG = {
+  'hal-novice-2': { raceDate: '2026-10-04', secPerMile: null },
+};
+
 // In-memory event IDs for the current session (populated from search or creation).
 let savedCalendarId = null;
 let savedEventIds   = [];
@@ -221,6 +236,192 @@ function buildEvents(plan, raceDateStr, paces) {
   });
 
   return events;
+}
+
+// ── Home screen: today's plan widget ──────────────────────────────────────────
+
+function daysBetweenStr(aStr, bStr) {
+  const a = new Date(aStr + 'T00:00:00');
+  const b = new Date(bStr + 'T00:00:00');
+  return Math.round((b - a) / 86400000);
+}
+
+/**
+ * Locates the schedule entry for a given calendar date within a plan, given
+ * the plan's race date (mirrors the date math in buildEvents/renderPreview).
+ */
+function getPlanDayForDate(plan, raceDateStr, targetDateStr) {
+  const TOTAL_DAYS   = plan.schedule.length * 7;
+  const startDateStr = addDays(raceDateStr, -(TOTAL_DAYS - 1));
+  const idx = daysBetweenStr(startDateStr, targetDateStr);
+
+  if (idx < 0) return { state: 'before', startDateStr };
+  if (idx >= TOTAL_DAYS) return { state: 'after' };
+
+  const wi = Math.floor(idx / 7);
+  const di = idx % 7;
+  return {
+    state: 'active',
+    day: plan.schedule[wi][di],
+    week: wi + 1,
+    totalWeeks: plan.schedule.length,
+    dayIndex: di,
+    weekDays: plan.schedule[wi],
+  };
+}
+
+const WEEK_DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+// Short labels for the bottom-of-square run-type tag — distinct from
+// runTypeLabel()'s full-sentence versions, which are too long to fit here.
+const WEEK_CAL_TYPE_LABEL = {
+  rest: 'Rest', cross: 'Rest', easy: 'Easy', long: 'Long',
+  pace: 'Pace', tempo: 'Tempo', speed: 'Speed', walk: 'Walk', race: 'Race',
+};
+
+/** Renders the 7-day week calendar (one square per day) for the plan's current week, with today highlighted. */
+function renderTodayWeekChart(weekDays, todayDayIndex) {
+  const container = document.getElementById('today-week-chart');
+  const calEl      = document.getElementById('today-week-cal');
+  const totalEl    = document.getElementById('today-week-total');
+
+  const totalMiles = weekDays.reduce((s, d) => s + d.miles, 0);
+  totalEl.textContent = `— ${totalMiles.toFixed(1)} mi total`;
+
+  calEl.innerHTML = weekDays.map((d, i) => {
+    const cellClass = i === todayDayIndex ? 'week-cal-cell week-cal-cell-today' : 'week-cal-cell';
+    return `
+      <div class="${cellClass}">
+        <span class="week-cal-daylabel">${WEEK_DAY_LABELS[i]}</span>
+        <span class="week-cal-miles">${d.miles}</span>
+        <span class="week-cal-type week-cal-type-${d.type}">${WEEK_CAL_TYPE_LABEL[d.type] || d.type}</span>
+      </div>`;
+  }).join('');
+
+  container.classList.remove('hidden');
+}
+
+// Reads the currently-configured default plan (if any) and, if there's an
+// active scheduled run today, maps its run type to the heat calculator's
+// intensity buckets — used by the Current Conditions risk chart so its
+// pace-adjustment reflects today's actual workout instead of a neutral read.
+function getTodayRunIntensity() {
+  const choice = localStorage.getItem(STORAGE_DEFAULT_PLAN_CHOICE);
+  if (!choice || choice === 'skip') return '';
+
+  const plan     = PLANS.find((p) => p.id === choice);
+  const setupRaw = localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP);
+  const setup    = setupRaw ? JSON.parse(setupRaw) : null;
+  if (!plan || !setup || !setup.raceDate) return '';
+
+  const result = getPlanDayForDate(plan, setup.raceDate, toDateStr(new Date()));
+  if (result.state !== 'active') return '';
+
+  switch (result.day.type) {
+    case 'race':                    return 'race';
+    case 'tempo': case 'speed': case 'pace': return 'workout';
+    case 'easy':  case 'long':  case 'walk': return 'easy';
+    default:                        return ''; // rest, cross
+  }
+}
+
+function renderTodayPlan() {
+  const chooser  = document.getElementById('default-plan-chooser');
+  const widget   = document.getElementById('today-plan');
+  const skipLink = document.getElementById('show-default-plan-link');
+  const choice   = localStorage.getItem(STORAGE_DEFAULT_PLAN_CHOICE);
+
+  // Never decided yet — show the chooser, nothing else.
+  if (!choice) {
+    chooser.classList.remove('hidden');
+    widget.classList.add('hidden');
+    skipLink.classList.add('hidden');
+    return;
+  }
+
+  if (choice === 'skip') {
+    chooser.classList.add('hidden');
+    widget.classList.add('hidden');
+    skipLink.classList.remove('hidden');
+    return;
+  }
+
+  const plan      = PLANS.find((p) => p.id === choice);
+  const setupRaw  = localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP);
+  const setup     = setupRaw ? JSON.parse(setupRaw) : null;
+
+  if (!plan || !setup || !setup.raceDate) {
+    // Corrupted/missing local storage — reset back to the chooser.
+    localStorage.removeItem(STORAGE_DEFAULT_PLAN_CHOICE);
+    localStorage.removeItem(STORAGE_DEFAULT_PLAN_SETUP);
+    chooser.classList.remove('hidden');
+    widget.classList.add('hidden');
+    skipLink.classList.add('hidden');
+    return;
+  }
+
+  chooser.classList.add('hidden');
+  skipLink.classList.add('hidden');
+  widget.classList.remove('hidden');
+
+  const todayStr = toDateStr(new Date());
+  const result   = getPlanDayForDate(plan, setup.raceDate, todayStr);
+
+  document.getElementById('today-plan-date-suffix').textContent = ' — ' + formatDisplayDate(todayStr);
+
+  const milesEl = document.getElementById('today-plan-miles');
+  const unitEl  = document.getElementById('today-plan-unit');
+  const typeEl  = document.getElementById('today-plan-type');
+  const paceEl  = document.getElementById('today-plan-pace');
+  const weekEl  = document.getElementById('today-plan-week');
+  const tipEl   = document.getElementById('today-plan-tip');
+  const weekChartEl = document.getElementById('today-week-chart');
+
+  // Non-numeric states (rest/cross/before/after) show a short word in the
+  // hero slot rather than a mileage figure — reset to that smaller style
+  // each render, since the same elements are reused for numeric run days too.
+  function setHero(text, unit, isWord) {
+    milesEl.textContent = text;
+    unitEl.textContent  = unit;
+    milesEl.classList.toggle('today-plan-hero-word', isWord);
+  }
+
+  if (result.state === 'before') {
+    setHero('SOON', '', true);
+    typeEl.textContent = `${plan.name} starts ${formatDisplayDate(result.startDateStr)}`;
+    paceEl.textContent = '';
+    weekEl.textContent = '';
+    tipEl.textContent  = '';
+    weekChartEl.classList.add('hidden');
+    return;
+  }
+
+  if (result.state === 'after') {
+    setHero('DONE', '', true);
+    typeEl.textContent = 'Race complete — nice work!';
+    paceEl.textContent = '';
+    weekEl.textContent = '';
+    tipEl.textContent  = '';
+    weekChartEl.classList.add('hidden');
+    return;
+  }
+
+  const { day, week, totalWeeks, dayIndex, weekDays } = result;
+
+  if (day.miles === 0) {
+    setHero(day.type === 'cross' ? 'X-TRAIN' : 'REST', '', true);
+    typeEl.textContent = day.type === 'cross' ? 'Cross-Train' : 'Rest Day';
+  } else {
+    setHero(day.miles, 'mi', false);
+    typeEl.textContent = runTypeLabel(day.type);
+  }
+
+  weekEl.textContent = `Week ${week} of ${totalWeeks}`;
+  tipEl.textContent  = runTypeTip(day.type);
+  renderTodayWeekChart(weekDays, dayIndex);
+
+  const typePace = (day.miles > 0 && setup.secPerMile) ? getPaceForType(day.type, setup.secPerMile) : null;
+  paceEl.textContent = typePace ? formatPace(typePace) : '';
 }
 
 // ── Calendar search & restore ─────────────────────────────────────────────────
@@ -1016,6 +1217,68 @@ window.addEventListener('load', () => {
       const found = await searchExistingPlan(calendarId);
       if (!found) showStep('step-configure');
     });
+
+  // Default plan chooser / today's plan widget (Home tab)
+
+  // Picker label/detail are generated from the plan + baked-in config
+  // (rather than hand-typed in the HTML) so they can never drift from the
+  // canonical plan name used everywhere else in the app, or from the actual
+  // seeded race date.
+  const tcmPlan   = PLANS.find((p) => p.id === DEFAULT_PLAN_ID);
+  const tcmConfig = DEFAULT_PLAN_CONFIG[DEFAULT_PLAN_ID];
+  document.getElementById('choose-tcm-label').textContent  = tcmPlan.name;
+  document.getElementById('choose-tcm-detail').textContent =
+    `Race day ${formatDisplayDate(tcmConfig.raceDate)} · Twin Cities Marathon`;
+
+  document.getElementById('btn-choose-tcm').addEventListener('click', () => {
+    localStorage.setItem(STORAGE_DEFAULT_PLAN_CHOICE, DEFAULT_PLAN_ID);
+    localStorage.setItem(STORAGE_DEFAULT_PLAN_SETUP, JSON.stringify(DEFAULT_PLAN_CONFIG[DEFAULT_PLAN_ID]));
+    renderTodayPlan();
+  });
+
+  document.getElementById('btn-choose-skip').addEventListener('click', () => {
+    localStorage.setItem(STORAGE_DEFAULT_PLAN_CHOICE, 'skip');
+    renderTodayPlan();
+  });
+
+  document.getElementById('btn-show-default-plan-picker').addEventListener('click', () => {
+    localStorage.removeItem(STORAGE_DEFAULT_PLAN_CHOICE);
+    localStorage.removeItem(STORAGE_DEFAULT_PLAN_SETUP);
+    renderTodayPlan();
+  });
+
+  document.getElementById('btn-clear-default-plan').addEventListener('click', () => {
+    localStorage.removeItem(STORAGE_DEFAULT_PLAN_CHOICE);
+    localStorage.removeItem(STORAGE_DEFAULT_PLAN_SETUP);
+    renderTodayPlan();
+  });
+
+  // Race date is editable independently of "Change default plan" — the
+  // baked-in default is a one-time seed, not a permanent value, so next
+  // year's race (or a correction) doesn't require touching the source.
+  document.getElementById('btn-edit-race-date').addEventListener('click', () => {
+    const setupRaw = localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP);
+    const setup    = setupRaw ? JSON.parse(setupRaw) : {};
+    document.getElementById('today-plan-race-date-input').value = setup.raceDate || '';
+    document.getElementById('today-plan-edit-date').classList.remove('hidden');
+  });
+
+  document.getElementById('btn-cancel-race-date').addEventListener('click', () => {
+    document.getElementById('today-plan-edit-date').classList.add('hidden');
+  });
+
+  document.getElementById('btn-save-race-date').addEventListener('click', () => {
+    const raceDate = document.getElementById('today-plan-race-date-input').value;
+    if (!raceDate) return;
+    const setupRaw = localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP);
+    const setup    = setupRaw ? JSON.parse(setupRaw) : {};
+    setup.raceDate = raceDate;
+    localStorage.setItem(STORAGE_DEFAULT_PLAN_SETUP, JSON.stringify(setup));
+    document.getElementById('today-plan-edit-date').classList.add('hidden');
+    renderTodayPlan();
+  });
+
+  renderTodayPlan();
 
   // Opens directly to a tab if the URL was shared with a hash, e.g. #heat-calculator.
   openTabFromHash();

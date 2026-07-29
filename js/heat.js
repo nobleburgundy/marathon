@@ -380,7 +380,11 @@
   }
 
   // Read-only counterpart for the "Current Conditions" panel: always "now",
-  // no form fields to fill, no pace-adjustment math shown.
+  // no form fields to fill. If the Home "Today's Plan" widget has an active
+  // scheduled run today, getTodayRunIntensity() (app.js) maps its run type
+  // to a heat-calculator intensity bucket so the chart shows a pace
+  // adjustment specific to today's actual workout — otherwise it falls back
+  // to '', same as before (no plan configured, a rest day, etc).
   async function fetchCurrentConditions(lat, lon) {
     const { hourly, aqiHourly } = await fetchWeatherAndAqi(lat, lon);
     const { bestIdx } = closestTimeIndex(hourly.time, new Date());
@@ -389,7 +393,7 @@
     renderConditionBadge(HOME_COND_IDS, hourly.temperature_2m[bestIdx], hourly.dew_point_2m[bestIdx]);
     const airNowOverride = await fetchAirNowOverride(lat, lon, referenceIso);
     renderAqiBadge(HOME_AQI_IDS, aqiHourly, referenceIso, airNowOverride);
-    homeChart.render(hourly, referenceIso, aqiHourly, '', airNowOverride);
+    homeChart.render(hourly, referenceIso, aqiHourly, getTodayRunIntensity(), airNowOverride);
     return { forecast: false };
   }
 
@@ -492,14 +496,17 @@
   // rendering logic can drive two independent chart instances on the same
   // page (the heat calculator's and the home screen's) without their click
   // handlers or "currently inspected hour" state leaking into each other.
-  // `intensity` may be '' (home screen has no workout-type selector) —
-  // calcAdjPct treats that as a neutral 1.0 multiplier; showPaceAdjustment
-  // controls whether that number is surfaced in the UI at all, since it's
-  // only meaningful once a workout type has actually been chosen.
-  function createRiskChart(ids, { showPaceAdjustment }) {
+  // `intensity` may be '' — calcAdjPct treats that as a neutral 1.0
+  // multiplier, but the pace-adjustment number is only actually surfaced in
+  // the UI when a real intensity was passed in (a chosen workout type on the
+  // calculator, or today's scheduled run type on the home screen) — showing
+  // it for an unknown/neutral intensity would be a meaningless number.
+  function createRiskChart(ids) {
     let rows = [];
+    let showPaceAdjustment = false;
 
     function render(hourly, referenceIso, aqiHourly, intensity, airNowOverride) {
+      showPaceAdjustment = !!intensity;
       const container = document.getElementById(ids.container);
       const legendEl   = document.getElementById(ids.legend);
       const barsEl     = document.getElementById(ids.bars);
@@ -660,8 +667,8 @@
     date: 'cc-risk-chart-date', detail: 'cc-risk-chart-detail',
   };
 
-  const heatChart = createRiskChart(HEAT_CHART_IDS, { showPaceAdjustment: true });
-  const homeChart = createRiskChart(HOME_CHART_IDS, { showPaceAdjustment: false });
+  const heatChart = createRiskChart(HEAT_CHART_IDS);
+  const homeChart = createRiskChart(HOME_CHART_IDS);
 
   function weatherStatusMessage(result, sourceLabel) {
     if (!result.forecast) return `Filled in from ${sourceLabel}.`;
