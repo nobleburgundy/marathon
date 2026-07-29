@@ -403,6 +403,13 @@ html, body {
   margin-bottom: 56px;
 }
 
+/* No underline — paired with .today-plan-card's dropped top border, this
+   keeps the header from stacking two accent lines right above the hero. */
+.today-plan-label {
+  border-bottom: none;
+  margin-bottom: 16px;
+}
+
 .today-plan-date {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
@@ -413,8 +420,7 @@ html, body {
 }
 
 .today-plan-card {
-  padding: 28px 0;
-  border-top: 2px solid var(--accent);
+  padding: 8px 0 28px;
 }
 
 .today-plan-hero {
@@ -542,13 +548,15 @@ html, body {
 
 /* Small label at the bottom of each square names the run type — this
    carries the color cue instead of the mileage number, so the number stays
-   a plain, quickly-scannable figure. Colors mirror the plan preview table's
-   .day-* scheme (css ~L520) so the language stays consistent app-wide. */
+   a plain, quickly-scannable figure. This is a deliberately separate,
+   effort-based color scheme from the Build Plan preview table's per-type
+   scheme (css ~L524) — the legend below (.week-cal-legend) makes it
+   self-explanatory on its own, rather than trying to reconcile the two. */
 .week-cal-type {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -576,10 +584,44 @@ html, body {
   font-weight: 700;
 }
 
+.week-cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.week-cal-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text3);
+}
+
+.week-cal-legend-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
 .today-plan-links {
   display: flex;
   flex-wrap: wrap;
   gap: 20px;
+}
+
+/* "Change default plan" resets everything back to the picker — visually
+   quieter than "Update race date" (a routine tweak) so its bigger
+   consequence doesn't carry equal weight to a minor edit. */
+.link-btn-muted {
+  color: var(--text3);
+}
+.link-btn-muted:hover {
+  opacity: 1;
+  color: var(--text2);
 }
 
 .today-plan-edit-date {
@@ -884,6 +926,17 @@ html, body {
   margin-bottom: 28px;
 }
 
+/* Home's "Current Conditions" panel — the -20px above is tuned for sitting
+   inside the Heat Calculator's form grid; here the row instead comes after
+   the content it produces, so it gets its own spacing plus a thin divider
+   that reads as a lower-emphasis "change location" footer, not a lead banner. */
+.cc-location-controls {
+  margin-top: 32px;
+  margin-bottom: 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
 .heat-weather-when {
   display: flex;
   align-items: baseline;
@@ -975,7 +1028,15 @@ html, body {
 .heat-zip-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+}
+
+/* Marks whichever saved ZIP matches what's currently displayed, so that
+   fact doesn't have to be inferred from the location suffix text elsewhere. */
+.heat-zip-chip-active {
+  background: var(--bg2);
+  border-radius: 3px;
+  padding: 3px 8px 3px 10px;
 }
 
 .heat-zip-chip-load {
@@ -993,13 +1054,20 @@ html, body {
 }
 .heat-zip-chip-load:hover { opacity: 0.7; }
 
+.heat-zip-chip-active .heat-zip-chip-load {
+  color: var(--text);
+}
+
+/* Bigger tap target than the visible "×" glyph — a wider gap from the load
+   button (above) plus this padding keeps "reload" and "permanently delete"
+   from being a hair-trigger pair on touch. */
 .heat-zip-chip-remove {
   background: none;
   border: none;
   color: var(--text3);
   cursor: pointer;
   font-size: 13px;
-  padding: 0 2px;
+  padding: 2px 6px;
   line-height: 1;
 }
 .heat-zip-chip-remove:active { color: var(--red); }
@@ -1798,7 +1866,8 @@ html, body {
   }
 
   .week-cal-type {
-    font-size: 7px;
+    font-size: 8px;
+    letter-spacing: 0.02em;
   }
 
   .week-cal-daylabel {

@@ -701,9 +701,23 @@
     const zipSavedRow    = document.getElementById(ids.zipSaved);
     const locationLabel  = ids.locationLabel ? document.getElementById(ids.locationLabel) : null;
 
+    // Tracks whichever saved ZIP the panel currently reflects, so the chip
+    // for it can be marked — otherwise that fact is only inferable from the
+    // location-suffix text elsewhere. Null when geolocation (not a ZIP) is
+    // the current source, or nothing has loaded yet.
+    let activeZip = null;
+    let statusClearTimer = null;
+
     function setStatus(msg, isError) {
       status.textContent = msg;
       status.classList.toggle('heat-weather-error', !!isError);
+      if (statusClearTimer) { clearTimeout(statusClearTimer); statusClearTimer = null; }
+      // On Home, the badges/chart that appear once this resolves already say
+      // the same thing this status line does — so it only needs to stick
+      // around long enough to confirm the action just taken, not forever.
+      if (opts && opts.autoClearStatus && !isError && msg) {
+        statusClearTimer = setTimeout(() => { status.textContent = ''; }, 4000);
+      }
     }
 
     // e.g. "Current Conditions in 55409" — only known for ZIP lookups, since
@@ -715,7 +729,7 @@
     function renderSavedZips() {
       const zips = loadSavedZips();
       zipSavedRow.innerHTML = zips.map((z) => `
-        <span class="heat-zip-chip">
+        <span class="heat-zip-chip${z.zip === activeZip ? ' heat-zip-chip-active' : ''}">
           <button type="button" class="heat-zip-chip-load" data-zip="${z.zip}">${z.zip}</button>
           <button type="button" class="heat-zip-chip-remove" data-zip="${z.zip}" aria-label="Remove ${z.zip}">&times;</button>
         </span>
@@ -726,7 +740,13 @@
       });
       zipSavedRow.querySelectorAll('.heat-zip-chip-remove').forEach((el) => {
         el.addEventListener('click', () => {
-          removeSavedZip(el.dataset.zip);
+          const zip = el.dataset.zip;
+          // Deleting is permanent — loadSavedZips() only re-seeds a default
+          // ZIP on a completely fresh visit, never once the saved list has
+          // been touched — so a stray tap here can't be silently undone.
+          if (!confirm(`Remove saved ZIP ${zip}?`)) return;
+          removeSavedZip(zip);
+          if (activeZip === zip) activeZip = null;
           renderSavedZips();
         });
       });
@@ -741,6 +761,7 @@
         const { lat, lon } = cached || await geocodeZip(zip);
         const result = await onResolve(lat, lon);
         saveZip(zip, lat, lon);
+        activeZip = zip;
         renderSavedZips();
         setStatus(weatherStatusMessage(result, zip), false);
         setLocationLabel(` in ${zip}`);
@@ -767,6 +788,8 @@
             const result = await onResolve(pos.coords.latitude, pos.coords.longitude);
             setStatus(weatherStatusMessage(result, 'your current location'), false);
             setLocationLabel(''); // geolocation gives coordinates, not a ZIP to show
+            activeZip = null; // no longer reflecting any saved ZIP
+            renderSavedZips();
           } catch (err) {
             setStatus(weatherErrorMessage(err, 'Could not fetch local weather — enter it manually.'), true);
           } finally {
@@ -987,7 +1010,7 @@
     initLocationControls(HEAT_LOCATION_IDS, applyWeatherFromCoords, { includeDateTime: true });
     // Current Conditions panel: no workout inputs, auto-loads the most
     // recently used (or default-seeded) ZIP on load so it's never empty.
-    initLocationControls(HOME_LOCATION_IDS, fetchCurrentConditions, { autoLoadDefault: true });
+    initLocationControls(HOME_LOCATION_IDS, fetchCurrentConditions, { autoLoadDefault: true, autoClearStatus: true });
 
     ['heat-miles', 'heat-pace', 'heat-temp', 'heat-dew', 'heat-rh', 'heat-intensity'].forEach((id) => {
       document.getElementById(id).addEventListener('input', calculate);

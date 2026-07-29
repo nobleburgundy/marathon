@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Marathon Planner</title>
   <link rel="icon" href="img/wingedFoot.png" type="image/png">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="Marathon Planner">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#f8fafb">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" rel="stylesheet">
@@ -71,7 +75,7 @@
 
         <!-- Today's plan hero (once a default plan is configured) -->
         <div id="today-plan" class="today-plan hidden">
-          <p class="section-label">Today&rsquo;s Plan<span class="today-plan-date" id="today-plan-date-suffix"></span></p>
+          <p class="section-label today-plan-label">Today&rsquo;s Plan<span class="today-plan-date" id="today-plan-date-suffix"></span></p>
           <div class="today-plan-card">
             <div class="today-plan-hero">
               <span class="today-plan-hero-num" id="today-plan-miles">0</span>
@@ -85,19 +89,26 @@
             <p class="today-plan-tip" id="today-plan-tip"></p>
 
             <div id="today-week-chart" class="today-week-chart hidden">
-              <p class="today-week-chart-label">This Week <span id="today-week-total"></span></p>
+              <p class="today-week-chart-label">This Week<span id="today-week-total"></span></p>
               <div class="week-cal" id="today-week-cal"></div>
+              <div class="week-cal-legend">
+                <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:var(--green)"></span>Easy</span>
+                <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:#b86d10"></span>Moderate</span>
+                <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:var(--red)"></span>Hard</span>
+                <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:#1f6fd6"></span>Rest</span>
+              </div>
             </div>
           </div>
           <div class="today-plan-links">
             <button type="button" class="link-btn" id="btn-edit-race-date">Update race date</button>
-            <button type="button" class="link-btn" id="btn-clear-default-plan">Change default plan</button>
+            <button type="button" class="link-btn link-btn-muted" id="btn-clear-default-plan">Change default plan</button>
           </div>
           <div id="today-plan-edit-date" class="today-plan-edit-date hidden">
             <div class="form-group">
               <label for="today-plan-race-date-input">Race Date</label>
               <input type="date" id="today-plan-race-date-input" class="field">
             </div>
+            <p id="today-plan-race-date-error" class="heat-invalid hidden"></p>
             <div class="btn-row">
               <button type="button" class="btn" id="btn-save-race-date">Save</button>
               <button type="button" class="btn secondary" id="btn-cancel-race-date">Cancel</button>
@@ -108,20 +119,9 @@
         <p class="section-label">Current Conditions<span id="cc-location-suffix"></span></p>
 
         <div class="current-conditions" id="current-conditions">
-          <div class="heat-weather-row">
-            <div class="heat-weather-controls">
-              <button type="button" id="cc-btn-use-weather" class="link-btn">&#128205; Use my location</button>
-              <span class="heat-weather-sep">or</span>
-              <input type="text" id="cc-zip-input" class="field heat-zip-field" placeholder="ZIP code" inputmode="numeric" pattern="[0-9]*" maxlength="5">
-              <button type="button" id="cc-btn-zip-fetch" class="link-btn">Get Weather</button>
-              <div id="cc-zip-saved" class="heat-zip-saved"></div>
-            </div>
-            <span id="cc-weather-status" class="hint"></span>
-          </div>
-
           <div class="heat-condition-row">
             <span class="heat-cond-badge" id="cc-cond-badge"></span>
-            <span class="heat-cond-desc" id="cc-cond-desc"></span>
+            <span class="heat-cond-desc" id="cc-cond-desc">Loading current conditions&hellip;</span>
           </div>
 
           <div id="cc-aqi-row" class="heat-condition-row heat-aqi-row hidden">
@@ -140,6 +140,20 @@
             <div id="cc-risk-chart-hours" class="heat-risk-chart-hours"></div>
             <p id="cc-risk-chart-detail" class="heat-risk-chart-detail"></p>
             <p class="heat-risk-chart-hint">Taller, redder bars = higher risk. Tap any bar for details.</p>
+          </div>
+
+          <!-- Location controls come after the content they produce — a
+               returning visit already has this auto-loaded, so the answer
+               shows before the controls that fetched it. -->
+          <div class="heat-weather-row cc-location-controls">
+            <div class="heat-weather-controls">
+              <button type="button" id="cc-btn-use-weather" class="link-btn">&#128205; Use my location</button>
+              <span class="heat-weather-sep">or</span>
+              <input type="text" id="cc-zip-input" class="field heat-zip-field" placeholder="ZIP code" inputmode="numeric" pattern="[0-9]*" maxlength="5">
+              <button type="button" id="cc-btn-zip-fetch" class="link-btn">Get Weather</button>
+              <div id="cc-zip-saved" class="heat-zip-saved"></div>
+            </div>
+            <span id="cc-weather-status" class="hint"></span>
           </div>
         </div>
 

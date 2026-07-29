@@ -286,7 +286,7 @@ function renderTodayWeekChart(weekDays, todayDayIndex) {
   const totalEl    = document.getElementById('today-week-total');
 
   const totalMiles = weekDays.reduce((s, d) => s + d.miles, 0);
-  totalEl.textContent = `— ${totalMiles.toFixed(1)} mi total`;
+  totalEl.textContent = ` — ${totalMiles.toFixed(1)} mi total`;
 
   calEl.innerHTML = weekDays.map((d, i) => {
     const cellClass = i === todayDayIndex ? 'week-cal-cell week-cal-cell-today' : 'week-cal-cell';
@@ -409,8 +409,10 @@ function renderTodayPlan() {
   const { day, week, totalWeeks, dayIndex, weekDays } = result;
 
   if (day.miles === 0) {
-    setHero(day.type === 'cross' ? 'X-TRAIN' : 'REST', '', true);
-    typeEl.textContent = day.type === 'cross' ? 'Cross-Train' : 'Rest Day';
+    // Cross-train days display identically to rest days (matches the
+    // "Rest" label used for both in the week calendar below).
+    setHero('REST', '', true);
+    typeEl.textContent = 'Rest Day';
   } else {
     setHero(day.miles, 'mi', false);
     typeEl.textContent = runTypeLabel(day.type);
@@ -1260,16 +1262,24 @@ window.addEventListener('load', () => {
     const setupRaw = localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP);
     const setup    = setupRaw ? JSON.parse(setupRaw) : {};
     document.getElementById('today-plan-race-date-input').value = setup.raceDate || '';
+    document.getElementById('today-plan-race-date-error').classList.add('hidden');
     document.getElementById('today-plan-edit-date').classList.remove('hidden');
   });
 
   document.getElementById('btn-cancel-race-date').addEventListener('click', () => {
+    document.getElementById('today-plan-race-date-error').classList.add('hidden');
     document.getElementById('today-plan-edit-date').classList.add('hidden');
   });
 
   document.getElementById('btn-save-race-date').addEventListener('click', () => {
     const raceDate = document.getElementById('today-plan-race-date-input').value;
-    if (!raceDate) return;
+    const errEl    = document.getElementById('today-plan-race-date-error');
+    if (!raceDate) {
+      errEl.textContent = 'Please select a race date.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    errEl.classList.add('hidden');
     const setupRaw = localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP);
     const setup    = setupRaw ? JSON.parse(setupRaw) : {};
     setup.raceDate = raceDate;
