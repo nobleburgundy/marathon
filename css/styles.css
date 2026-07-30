@@ -377,29 +377,32 @@ html, body {
   max-width: 520px;
 }
 
+/* No max-width here (or on the other Home widgets below) — .inner already
+   caps/centers the page at 1140px on wide desktop and is unconstrained
+   below that, so a widget-level 640px cap only ever fights that: it looks
+   fine at phone widths (never binds) and at wide desktop (reads as an
+   intentional centered column), but leaves an asymmetric dead gap on the
+   right at in-between widths like iPad, where .inner itself is nowhere
+   near 1140px yet. */
 .current-conditions {
-  max-width: 640px;
   margin-bottom: 56px;
 }
 
 /* ── Default plan chooser ────────────────────────────────────────────────────*/
 
 .default-plan-chooser {
-  max-width: 640px;
   margin-bottom: 56px;
 }
 
 /* ── Re-entry link (shown after "Skip") ──────────────────────────────────────*/
 
 .show-default-plan-link {
-  max-width: 640px;
   margin-bottom: 56px;
 }
 
 /* ── Today's plan hero ───────────────────────────────────────────────────────*/
 
 .today-plan {
-  max-width: 640px;
   margin-bottom: 56px;
 }
 
@@ -584,6 +587,193 @@ html, body {
   font-weight: 700;
 }
 
+/* A date with no plan data at all (outside the plan's active range). */
+.week-cal-cell-empty {
+  border-style: dashed;
+  opacity: 0.4;
+}
+
+/* Days that spill into an adjacent month on the Current Plan calendar —
+   still shows real data (so the row reads as a complete week), just
+   dimmed to read as "not this month." */
+.week-cal-cell-outmonth {
+  opacity: 0.4;
+}
+
+/* ── Current Plan page ───────────────────────────────────────────────────────*/
+
+#currentplan-summary {
+  margin-bottom: 32px;
+}
+
+/* Informational, not a hero stat block — .summary-rows/.summary-value are
+   shared with the Build Plan preview and Heat Calculator, where large
+   numbers are the point; here it's just reference info, so this scopes a
+   smaller, plainer treatment to this one instance only. */
+/* Flex (not grid) so it stays one row regardless of width — overrides both
+   the base grid and the shared mobile media query's stack-to-1-column rule,
+   since an ID-scoped selector beats a plain .summary-rows class either way. */
+#currentplan-summary .summary-rows {
+  display: flex;
+  flex-wrap: nowrap;
+  border-top: 1px solid var(--border);
+  margin-bottom: 0;
+}
+
+#currentplan-summary .summary-row {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 12px 12px;
+  gap: 4px;
+}
+
+#currentplan-summary .summary-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+#currentplan-view-toggle {
+  margin-bottom: 32px;
+}
+
+.currentplan-cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.currentplan-cal-nav .link-btn {
+  margin-top: 0;
+}
+
+.currentplan-cal-nav .link-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.currentplan-cal-month {
+  font-family: 'Space Mono', monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* A handful of week-blocks stacked vertically, each showing its 7 days plus
+   the week's total mileage to the right — a paged window (5 weeks at a
+   time) rather than a traditional month grid, since a full 18–30 week plan
+   doesn't fit meaningfully on one screen either way. */
+
+.currentplan-cal-weekdays {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.cp-week-days-header {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0;
+}
+
+.cp-week-days-header span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text3);
+  text-align: center;
+}
+
+.currentplan-weeks {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 48px;
+}
+
+.cp-week-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Collapses the doubled top/bottom border where one row's cells touch the
+   next row's — same border-collapse idea as the horizontal -1px on
+   .week-cal-cell, just applied per-row so the day-grid and its label/total
+   shift together and stay aligned. */
+.cp-week-row + .cp-week-row {
+  margin-top: -1px;
+}
+
+.cp-week-row-current {
+  background: var(--bg2);
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+
+.cp-week-label {
+  flex: 0 0 100px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cp-week-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+.cp-week-dates {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text3);
+  white-space: nowrap;
+}
+
+.cp-week-days {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0;
+}
+
+/* Traditional calendar look: squared-off cells sharing borders rather than
+   spaced-apart rounded squares. The -1px margin collapses the doubled
+   border where adjacent cells touch, same idea as border-collapse on a
+   <table> (which grid items don't support directly). */
+.cp-week-days .week-cal-cell {
+  min-height: 68px;
+  border-radius: 0;
+  margin-left: -1px;
+}
+
+.cp-week-days .week-cal-cell:first-child {
+  margin-left: 0;
+}
+
+.cp-week-total {
+  flex: 0 0 80px;
+  font-family: 'Space Mono', monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: right;
+  white-space: nowrap;
+}
+
 .week-cal-legend {
   display: flex;
   flex-wrap: wrap;
@@ -637,7 +827,6 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: 640px;
 }
 
 .home-link-card .wizard-option-label {
@@ -761,6 +950,14 @@ html, body {
   text-transform: uppercase;
   color: var(--text2);           /* was text3 — now more visible */
   text-align: left;
+  white-space: nowrap;
+}
+
+.week-total {
+  font-family: 'Space Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
   white-space: nowrap;
 }
 
@@ -1165,6 +1362,7 @@ html, body {
   color: var(--text3);
   line-height: 1.5;
   margin: -20px 0 36px;
+  max-width: 560px;
 }
 
 .heat-aqi-note a {
@@ -1176,6 +1374,7 @@ html, body {
   font-size: 13px;
   color: var(--text2);
   line-height: 1.5;
+  max-width: 560px;
 }
 
 .heat-stats {
@@ -1677,6 +1876,7 @@ html, body {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   color: var(--text3);
+  max-width: 640px;
 }
 
 .wizard-nav {
@@ -1875,6 +2075,33 @@ html, body {
     letter-spacing: 0.02em;
   }
 
+  /* Weekday header's 3-column alignment (label | days | total) gets tight
+     at this width — each cell already carries its own date number, so the
+     header isn't load-bearing here. */
+  .currentplan-cal-weekdays {
+    display: none;
+  }
+
+  .cp-week-row {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    row-gap: 6px;
+  }
+
+  .cp-week-days {
+    flex-basis: 100%;
+    order: 3;
+    gap: 0;
+  }
+
+  .cp-week-days .week-cal-cell {
+    min-height: 48px;
+  }
+
+  .currentplan-cal-month {
+    font-size: 13px;
+  }
+
   .signin-hero-unit {
     font-size: 10px;
   }
@@ -1916,6 +2143,21 @@ html, body {
 
   .summary-value {
     font-size: 24px;
+  }
+
+  /* Current Plan's summary stays one row even on mobile (overridden above
+     the generic 3-column-grid stack rule) — just tighten it further so
+     four or five columns still have room to breathe on a narrow screen. */
+  #currentplan-summary .summary-row {
+    padding: 8px 6px;
+  }
+
+  #currentplan-summary .summary-label {
+    font-size: 8px;
+  }
+
+  #currentplan-summary .summary-value {
+    font-size: 11px;
   }
 
   .table-scroll {
