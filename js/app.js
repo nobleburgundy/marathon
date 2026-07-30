@@ -34,6 +34,101 @@ const DEFAULT_PLAN_CONFIG = {
 // needing an active Google sign-in every visit.
 const STORAGE_CURRENT_PLAN = 'mp_current_plan'; // JSON {planId, raceDate, secPerMile}
 
+// Settings page — per-view week-start preference. Calendar defaults to
+// Sunday (a traditional calendar), List defaults to Monday (matches the
+// plan's own native Mon–Sun schedule structure, so existing users see no
+// change unless they opt in).
+const STORAGE_CAL_WEEK_START   = 'mp_cal_week_start';
+const STORAGE_LIST_WEEK_START  = 'mp_list_week_start';
+const STORAGE_CURRENTPLAN_VIEW = 'mp_currentplan_view'; // 'calendar' | 'list'
+
+function getCalWeekStart()  { return localStorage.getItem(STORAGE_CAL_WEEK_START)  || 'sunday'; }
+function getListWeekStart() { return localStorage.getItem(STORAGE_LIST_WEEK_START) || 'monday'; }
+
+/** Wires a Settings toggle (Sunday/Monday) — saves the choice and re-renders Current Plan if it's currently visible. */
+function initSettingsToggle(containerId, storageKey, currentValue) {
+  const container = document.getElementById(containerId);
+  container.querySelectorAll('.heat-toggle-btn').forEach((btn) => {
+    btn.classList.toggle('heat-toggle-active', btn.dataset.value === currentValue);
+    btn.addEventListener('click', () => {
+      localStorage.setItem(storageKey, btn.dataset.value);
+      container.querySelectorAll('.heat-toggle-btn').forEach((b) =>
+        b.classList.toggle('heat-toggle-active', b === btn));
+      renderCurrentPlan();
+    });
+  });
+}
+
+/**
+ * Settings' "Default Training Plan" group — management for the Home
+ * default-plan widget lives here (race date, reset), while the initial
+ * pick-or-skip decision stays a one-time moment on Home itself.
+ */
+function renderSettingsDefaultPlan() {
+  const container = document.getElementById('settings-default-plan-content');
+  const choice = localStorage.getItem(STORAGE_DEFAULT_PLAN_CHOICE);
+  const plan   = choice ? PLANS.find((p) => p.id === choice) : null;
+  const setupRaw = plan ? localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP) : null;
+  const setup    = setupRaw ? JSON.parse(setupRaw) : null;
+
+  if (!plan || !setup) {
+    container.innerHTML = `<p class="hint">No default plan is set on Home yet &mdash; visit the Home tab to choose one.</p>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <p class="settings-default-plan-name">${plan.name}</p>
+    <p class="hint">Race day ${formatDisplayDate(setup.raceDate)}${setup.secPerMile ? ` &middot; Goal pace ${formatPace(setup.secPerMile)}` : ''}</p>
+    <div class="today-plan-links">
+      <button type="button" class="link-btn" id="settings-btn-edit-race-date">Update race date</button>
+      <button type="button" class="link-btn link-btn-muted" id="settings-btn-clear-default-plan">Change default plan</button>
+    </div>
+    <div id="settings-edit-race-date" class="today-plan-edit-date hidden">
+      <div class="form-group">
+        <label for="settings-race-date-input">Race Date</label>
+        <input type="date" id="settings-race-date-input" class="field">
+      </div>
+      <p id="settings-race-date-error" class="heat-invalid hidden"></p>
+      <div class="btn-row">
+        <button type="button" class="btn" id="settings-btn-save-race-date">Save</button>
+        <button type="button" class="btn secondary" id="settings-btn-cancel-race-date">Cancel</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('settings-btn-edit-race-date').addEventListener('click', () => {
+    document.getElementById('settings-race-date-input').value = setup.raceDate || '';
+    document.getElementById('settings-race-date-error').classList.add('hidden');
+    document.getElementById('settings-edit-race-date').classList.remove('hidden');
+  });
+
+  document.getElementById('settings-btn-cancel-race-date').addEventListener('click', () => {
+    document.getElementById('settings-edit-race-date').classList.add('hidden');
+  });
+
+  document.getElementById('settings-btn-save-race-date').addEventListener('click', () => {
+    const raceDate = document.getElementById('settings-race-date-input').value;
+    const errEl    = document.getElementById('settings-race-date-error');
+    if (!raceDate) {
+      errEl.textContent = 'Please select a race date.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    errEl.classList.add('hidden');
+    setup.raceDate = raceDate;
+    localStorage.setItem(STORAGE_DEFAULT_PLAN_SETUP, JSON.stringify(setup));
+    renderTodayPlan();
+    renderSettingsDefaultPlan();
+  });
+
+  document.getElementById('settings-btn-clear-default-plan').addEventListener('click', () => {
+    localStorage.removeItem(STORAGE_DEFAULT_PLAN_CHOICE);
+    localStorage.removeItem(STORAGE_DEFAULT_PLAN_SETUP);
+    renderTodayPlan();
+    renderSettingsDefaultPlan();
+  });
+}
+
 function saveCurrentPlan(planId, raceDate, secPerMile) {
   localStorage.setItem(STORAGE_CURRENT_PLAN, JSON.stringify({ planId, raceDate, secPerMile: secPerMile || null }));
 }
@@ -476,7 +571,7 @@ function renderTodayPlan() {
 // ── Current Plan page ─────────────────────────────────────────────────────────
 
 let currentPlanCalMonth = null; // Date (first-of-month currently displayed)
-let currentPlanViewMode = 'calendar'; // 'calendar' | 'list'
+let currentPlanViewMode = localStorage.getItem(STORAGE_CURRENTPLAN_VIEW) || 'calendar'; // 'calendar' | 'list'
 
 function formatShortDate(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
@@ -503,7 +598,8 @@ function renderCurrentPlan() {
   if (config.secPerMile) summaryEntries.splice(3, 0, ['Goal Pace', formatPace(config.secPerMile)]);
   document.getElementById('currentplan-summary').innerHTML = buildSummaryRowsHtml(summaryEntries);
 
-  document.getElementById('currentplan-list').innerHTML = buildPlanTableHtml(plan, config.secPerMile, true);
+  document.getElementById('currentplan-list').innerHTML =
+    buildPlanTableHtml(plan, config.secPerMile, true, getListWeekStart());
 
   const todayStr = toDateStr(new Date());
   if (!currentPlanCalMonth) {
@@ -516,61 +612,83 @@ function renderCurrentPlan() {
     currentPlanCalMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   }
 
-  renderCurrentPlanMonth(plan, startDateStr, config.raceDate, todayStr);
+  renderCurrentPlanMonth(plan, startDateStr, config.raceDate, todayStr, getCalWeekStart());
 }
 
 /**
- * Current Plan's calendar view: a traditional month grid (Mon–Sun rows),
- * with each row's plan-week total mileage shown to the right. Since plan
- * weeks and calendar rows are both Monday-aligned (the race always falls on
- * a Sunday, so every plan week — and the plan's start date — lands on a
- * real Monday–Sunday span), a calendar row either matches an entire plan
- * week or none of it — never a partial overlap. Days that spill into the
- * adjacent month are still shown with their real data (so the row reads as
- * a complete week) but dimmed via .week-cal-cell-outmonth.
+ * Current Plan's calendar view: a traditional month grid. Week-start is a
+ * user preference (Settings) — the plan's own week structure is always
+ * Monday–Sunday internally (schedule day-index 0 = Monday, race always a
+ * Sunday), so a Sunday-first calendar row doesn't align 1:1 with one plan
+ * week the way a Monday-first row does — it spans the tail of one plan week
+ * (its Sunday) plus the start of the next (Monday–Saturday). Rather than
+ * track a row → plan-week correspondence, this looks up each day
+ * individually by date and sums whatever 7 real dates are shown for that
+ * row's total — a "calendar week" total, which is what a Sunday-first grid
+ * actually implies (and reduces to the same thing as a "plan week" total
+ * when Monday-first, since the two align in that case). The row label
+ * names whichever plan week owns most of the row (via its Monday).
  */
-function renderCurrentPlanMonth(plan, startDateStr, raceDateStr, todayStr) {
+function renderCurrentPlanMonth(plan, startDateStr, raceDateStr, todayStr, weekStartsOn) {
   const year  = currentPlanCalMonth.getFullYear();
   const month = currentPlanCalMonth.getMonth();
   const totalWeeks = plan.schedule.length;
+  const startsOnSunday = weekStartsOn === 'sunday';
 
   document.getElementById('currentplan-cal-month').textContent =
     currentPlanCalMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  document.getElementById('currentplan-cal-weekday-labels').innerHTML =
+    WEEK_DAY_LABELS_BY_START[weekStartsOn].map((d) => `<span>${d}</span>`).join('');
 
   const thisMonthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
 
-  // Monday-aligned grid bounds: from the Monday of the week containing the
-  // 1st, through the Sunday of the week containing the last day of month.
-  const firstOfMonth   = new Date(year, month, 1);
-  const firstWeekday   = (firstOfMonth.getDay() + 6) % 7; // 0=Mon..6=Sun
-  const gridStartDateStr = addDays(toDateStr(firstOfMonth), -firstWeekday);
+  // Flat date → day lookup, independent of week/row alignment.
+  const dayByDate = {};
+  plan.schedule.forEach((week, wi) => {
+    week.forEach((day, di) => {
+      dayByDate[addDays(startDateStr, wi * 7 + di)] = day;
+    });
+  });
 
-  const daysInMonth  = new Date(year, month + 1, 0).getDate();
-  const lastOfMonth  = new Date(year, month, daysInMonth);
-  const lastWeekday  = (lastOfMonth.getDay() + 6) % 7;
-  const gridEndDateStr = addDays(toDateStr(lastOfMonth), 6 - lastWeekday);
+  // JS Date.getDay() is Sunday-indexed (0=Sun..6=Sat); convert to
+  // Monday-indexed (0=Mon..6=Sun) when the grid starts on Monday instead.
+  const weekdayOffset = (date) => startsOnSunday ? date.getDay() : (date.getDay() + 6) % 7;
+
+  const firstOfMonth = new Date(year, month, 1);
+  const gridStartDateStr = addDays(toDateStr(firstOfMonth), -weekdayOffset(firstOfMonth));
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const lastOfMonth = new Date(year, month, daysInMonth);
+  const gridEndDateStr = addDays(toDateStr(lastOfMonth), 6 - weekdayOffset(lastOfMonth));
 
   const numRows = Math.round(daysBetweenStr(gridStartDateStr, gridEndDateStr) / 7) + 1;
+
+  // Monday's offset within a row: 0 when the grid starts on Monday, 1 when
+  // it starts on Sunday (Sunday leads, then Monday).
+  const mondayOffsetInRow = startsOnSunday ? 1 : 0;
 
   const rows = [];
   for (let r = 0; r < numRows; r++) {
     const weekStartDateStr = addDays(gridStartDateStr, r * 7);
     const weekEndDateStr   = addDays(weekStartDateStr, 6);
+    const containsToday    = todayStr >= weekStartDateStr && todayStr <= weekEndDateStr;
 
-    const idx      = daysBetweenStr(startDateStr, weekStartDateStr);
-    const weekIdx  = (idx >= 0 && idx % 7 === 0 && idx / 7 < totalWeeks) ? idx / 7 : null;
-    const weekData = weekIdx !== null ? plan.schedule[weekIdx] : null;
-    const weekTotal = weekData ? weekData.reduce((s, d) => s + d.miles, 0) : null;
-    const containsToday = todayStr >= weekStartDateStr && todayStr <= weekEndDateStr;
+    // Whichever plan week owns the Monday within this row, for the "Wk N" label.
+    const mondayIdx = daysBetweenStr(startDateStr, addDays(weekStartDateStr, mondayOffsetInRow));
+    const weekIdx = (mondayIdx >= 0 && mondayIdx % 7 === 0 && mondayIdx / 7 < totalWeeks) ? mondayIdx / 7 : null;
 
+    let weekTotal = 0;
+    let hasAnyData = false;
     const dayCells = [];
     for (let di = 0; di < 7; di++) {
       const dateStr    = addDays(weekStartDateStr, di);
       const dayNum     = parseInt(dateStr.slice(8, 10), 10);
       const inMonth    = dateStr.slice(0, 7) === thisMonthStr;
-      const day        = weekData ? weekData[di] : null;
+      const day        = dayByDate[dateStr] || null;
       const todayClass = dateStr === todayStr ? ' week-cal-cell-today' : '';
       const monthClass = inMonth ? '' : ' week-cal-cell-outmonth';
+
+      if (day) { weekTotal += day.miles; hasAnyData = true; }
 
       dayCells.push(day
         ? `<div class="week-cal-cell${todayClass}${monthClass}">
@@ -586,11 +704,11 @@ function renderCurrentPlanMonth(plan, startDateStr, raceDateStr, todayStr) {
     rows.push(`
       <div class="cp-week-row${containsToday ? ' cp-week-row-current' : ''}">
         <div class="cp-week-label">
-          <span class="cp-week-num">${weekIdx !== null ? `Wk ${weekIdx + 1}` : ''}</span>
+          <span class="cp-week-num">${weekIdx !== null ? `Wk ${weekIdx + 1}` : '—'}</span>
           <span class="cp-week-dates">${formatShortDate(weekStartDateStr)}–${formatShortDate(weekEndDateStr)}</span>
         </div>
         <div class="cp-week-days">${dayCells.join('')}</div>
-        <div class="cp-week-total">${weekTotal != null ? weekTotal.toFixed(1) + ' mi' : '—'}</div>
+        <div class="cp-week-total">${hasAnyData ? weekTotal.toFixed(1) + ' mi' : '—'}</div>
       </div>`);
   }
   document.getElementById('currentplan-weeks').innerHTML = rows.join('');
@@ -1035,7 +1153,7 @@ function restartWizard() {
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 
-const TAB_VIEWS = ['home', 'currentplan', 'plan', 'wizard', 'plans', 'heat'];
+const TAB_VIEWS = ['home', 'currentplan', 'plan', 'wizard', 'plans', 'heat', 'settings'];
 
 // Shareable-link slugs for each tab, e.g. #heat-calculator
 const TAB_HASHES = {
@@ -1045,6 +1163,7 @@ const TAB_HASHES = {
   wizard: 'training-wizard',
   plans: 'plans',
   heat:  'heat-calculator',
+  settings: 'settings',
 };
 
 function switchTab(tabId) {
@@ -1059,6 +1178,7 @@ function switchTab(tabId) {
     btn.classList.toggle('tab-active', btn.dataset.tab === tabId);
   });
   if (tabId === 'currentplan') renderCurrentPlan();
+  if (tabId === 'settings') renderSettingsDefaultPlan();
   const hash = `#${TAB_HASHES[tabId]}`;
   if (location.hash !== hash) history.replaceState(null, '', hash);
 }
@@ -1115,9 +1235,26 @@ function buildSummaryRowsHtml(entries) {
 }
 
 /** Shared week-by-week plan table, used by the Build Plan preview and Current Plan's List view. */
-function buildPlanTableHtml(plan, primaryPace, showWeekTotal = false) {
+// Schedule day-index order (and matching header labels) for each week-start
+// preference. Schedule arrays are always [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+// (index 6 = Sunday) — 'sunday' just reorders which column each index
+// renders into, it doesn't change what week a day belongs to.
+const WEEK_DAY_ORDER = {
+  monday: [0, 1, 2, 3, 4, 5, 6],
+  sunday: [6, 0, 1, 2, 3, 4, 5],
+};
+const WEEK_DAY_LABELS_BY_START = {
+  monday: PLAN_TABLE_DAY_LABELS,
+  sunday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+};
+
+function buildPlanTableHtml(plan, primaryPace, showWeekTotal = false, weekStartsOn = 'monday') {
+  const dayOrder   = WEEK_DAY_ORDER[weekStartsOn] || WEEK_DAY_ORDER.monday;
+  const dayLabels  = WEEK_DAY_LABELS_BY_START[weekStartsOn] || WEEK_DAY_LABELS_BY_START.monday;
+
   const tbody = plan.schedule.map((week, wi) => {
-    const cells = week.map((day) => {
+    const cells = dayOrder.map((di) => {
+      const day = week[di];
       if (day.miles === 0) {
         const label = day.type === 'cross' ? 'rest/x-train' : 'rest';
         return `<td class="day-${day.type}" data-type="${day.type}"><span class="day-miles">${label}</span></td>`;
@@ -1137,17 +1274,18 @@ function buildPlanTableHtml(plan, primaryPace, showWeekTotal = false) {
 
   return `
     <div class="table-scroll">
-      <table class="plan-table">
+      <table class="plan-table${showWeekTotal ? ' plan-table-fixed' : ''}">
         <thead>
           <tr>
-            <th></th>
-            ${PLAN_TABLE_DAY_LABELS.map((d) => `<th>${d}</th>`).join('')}
-            ${showWeekTotal ? '<th>Total</th>' : ''}
+            <th class="plan-table-num-col"></th>
+            ${dayLabels.map((d) => `<th>${d}</th>`).join('')}
+            ${showWeekTotal ? '<th class="plan-table-total-col">Total</th>' : ''}
           </tr>
         </thead>
         <tbody>${tbody}</tbody>
       </table>
     </div>
+    ${showWeekTotal ? '<p class="hint plan-table-scroll-hint">Scroll right to see each week&rsquo;s total.</p>' : ''}
   `;
 }
 
@@ -1444,44 +1582,7 @@ window.addEventListener('load', () => {
     renderTodayPlan();
   });
 
-  document.getElementById('btn-clear-default-plan').addEventListener('click', () => {
-    localStorage.removeItem(STORAGE_DEFAULT_PLAN_CHOICE);
-    localStorage.removeItem(STORAGE_DEFAULT_PLAN_SETUP);
-    renderTodayPlan();
-  });
-
-  // Race date is editable independently of "Change default plan" — the
-  // baked-in default is a one-time seed, not a permanent value, so next
-  // year's race (or a correction) doesn't require touching the source.
-  document.getElementById('btn-edit-race-date').addEventListener('click', () => {
-    const setupRaw = localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP);
-    const setup    = setupRaw ? JSON.parse(setupRaw) : {};
-    document.getElementById('today-plan-race-date-input').value = setup.raceDate || '';
-    document.getElementById('today-plan-race-date-error').classList.add('hidden');
-    document.getElementById('today-plan-edit-date').classList.remove('hidden');
-  });
-
-  document.getElementById('btn-cancel-race-date').addEventListener('click', () => {
-    document.getElementById('today-plan-race-date-error').classList.add('hidden');
-    document.getElementById('today-plan-edit-date').classList.add('hidden');
-  });
-
-  document.getElementById('btn-save-race-date').addEventListener('click', () => {
-    const raceDate = document.getElementById('today-plan-race-date-input').value;
-    const errEl    = document.getElementById('today-plan-race-date-error');
-    if (!raceDate) {
-      errEl.textContent = 'Please select a race date.';
-      errEl.classList.remove('hidden');
-      return;
-    }
-    errEl.classList.add('hidden');
-    const setupRaw = localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP);
-    const setup    = setupRaw ? JSON.parse(setupRaw) : {};
-    setup.raceDate = raceDate;
-    localStorage.setItem(STORAGE_DEFAULT_PLAN_SETUP, JSON.stringify(setup));
-    document.getElementById('today-plan-edit-date').classList.add('hidden');
-    renderTodayPlan();
-  });
+  document.getElementById('btn-goto-settings').addEventListener('click', () => switchTab('settings'));
 
   renderTodayPlan();
 
@@ -1489,15 +1590,20 @@ window.addEventListener('load', () => {
   document.getElementById('btn-view-full-plan')
     .addEventListener('click', () => switchTab('currentplan'));
 
+  function applyCurrentPlanViewMode() {
+    document.querySelectorAll('#currentplan-view-toggle .heat-toggle-btn').forEach((b) =>
+      b.classList.toggle('heat-toggle-active', b.dataset.view === currentPlanViewMode));
+    document.getElementById('currentplan-calendar').classList.toggle('hidden', currentPlanViewMode !== 'calendar');
+    document.getElementById('currentplan-list').classList.toggle('hidden', currentPlanViewMode !== 'list');
+  }
   document.querySelectorAll('#currentplan-view-toggle .heat-toggle-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       currentPlanViewMode = btn.dataset.view;
-      document.querySelectorAll('#currentplan-view-toggle .heat-toggle-btn').forEach((b) =>
-        b.classList.toggle('heat-toggle-active', b === btn));
-      document.getElementById('currentplan-calendar').classList.toggle('hidden', currentPlanViewMode !== 'calendar');
-      document.getElementById('currentplan-list').classList.toggle('hidden', currentPlanViewMode !== 'list');
+      localStorage.setItem(STORAGE_CURRENTPLAN_VIEW, currentPlanViewMode);
+      applyCurrentPlanViewMode();
     });
   });
+  applyCurrentPlanViewMode(); // sync DOM to the remembered choice (HTML hardcodes "Calendar" by default)
 
   document.getElementById('currentplan-cal-prev').addEventListener('click', () => {
     currentPlanCalMonth = new Date(currentPlanCalMonth.getFullYear(), currentPlanCalMonth.getMonth() - 1, 1);
@@ -1507,6 +1613,10 @@ window.addEventListener('load', () => {
     currentPlanCalMonth = new Date(currentPlanCalMonth.getFullYear(), currentPlanCalMonth.getMonth() + 1, 1);
     renderCurrentPlan();
   });
+
+  // Settings page
+  initSettingsToggle('settings-cal-week-start', STORAGE_CAL_WEEK_START, getCalWeekStart());
+  initSettingsToggle('settings-list-week-start', STORAGE_LIST_WEEK_START, getListWeekStart());
 
   // Opens directly to a tab if the URL was shared with a hash, e.g. #heat-calculator.
   openTabFromHash();

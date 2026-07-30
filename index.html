@@ -40,6 +40,7 @@
       <button class="tab-btn" data-tab="wizard">Training Wizard</button>
       <button class="tab-btn" data-tab="plans">All Plans</button>
       <button class="tab-btn" data-tab="heat">Adjust for Heat</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
     </div>
   </div>
 
@@ -95,26 +96,14 @@
               <div class="week-cal-legend">
                 <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:var(--green)"></span>Easy</span>
                 <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:#b86d10"></span>Moderate</span>
-                <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:var(--red)"></span>Long</span>
+                <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:var(--red)"></span>Long/Speed</span>
                 <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:#1f6fd6"></span>Rest</span>
               </div>
               <button type="button" class="link-btn" id="btn-view-full-plan">View Full Plan &rarr;</button>
             </div>
           </div>
           <div class="today-plan-links">
-            <button type="button" class="link-btn" id="btn-edit-race-date">Update race date</button>
-            <button type="button" class="link-btn link-btn-muted" id="btn-clear-default-plan">Change default plan</button>
-          </div>
-          <div id="today-plan-edit-date" class="today-plan-edit-date hidden">
-            <div class="form-group">
-              <label for="today-plan-race-date-input">Race Date</label>
-              <input type="date" id="today-plan-race-date-input" class="field">
-            </div>
-            <p id="today-plan-race-date-error" class="heat-invalid hidden"></p>
-            <div class="btn-row">
-              <button type="button" class="btn" id="btn-save-race-date">Save</button>
-              <button type="button" class="btn secondary" id="btn-cancel-race-date">Cancel</button>
-            </div>
+            <button type="button" class="link-btn" id="btn-goto-settings">Manage in Settings &rarr;</button>
           </div>
         </div>
 
@@ -368,7 +357,7 @@
           <div class="form-group">
             <div class="heat-humidity-header">
               <label>Dew Point</label>
-              <div class="heat-input-toggle">
+              <div class="heat-input-toggle" id="heat-humidity-toggle">
                 <button class="heat-toggle-btn heat-toggle-active" data-mode="dew">Dew Point</button>
                 <button class="heat-toggle-btn" data-mode="rh">Humidity %</button>
               </div>
@@ -480,9 +469,7 @@
           </div>
           <div class="currentplan-cal-weekdays">
             <span class="cp-week-label"></span>
-            <span class="cp-week-days-header">
-              <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
-            </span>
+            <span class="cp-week-days-header" id="currentplan-cal-weekday-labels"></span>
             <span class="cp-week-total"></span>
           </div>
           <div class="currentplan-weeks" id="currentplan-weeks"></div>
@@ -491,6 +478,34 @@
         <div id="currentplan-list" class="hidden"></div>
 
       </div><!-- /#currentplan-view -->
+
+      <!-- Settings view -->
+      <div id="settings-view" class="hidden">
+
+        <p class="section-label">Settings</p>
+
+        <div class="settings-group">
+          <p class="settings-group-label">Default Training Plan (Home)</p>
+          <div id="settings-default-plan-content"></div>
+        </div>
+
+        <div class="settings-group">
+          <p class="settings-group-label">Calendar View &mdash; Week Starts On</p>
+          <div class="heat-input-toggle" id="settings-cal-week-start">
+            <button type="button" class="heat-toggle-btn" data-value="sunday">Sunday</button>
+            <button type="button" class="heat-toggle-btn" data-value="monday">Monday</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <p class="settings-group-label">List View &mdash; Week Starts On</p>
+          <div class="heat-input-toggle" id="settings-list-week-start">
+            <button type="button" class="heat-toggle-btn" data-value="sunday">Sunday</button>
+            <button type="button" class="heat-toggle-btn" data-value="monday">Monday</button>
+          </div>
+        </div>
+
+      </div><!-- /#settings-view -->
 
     </div><!-- /.scroll-inner -->
   </div><!-- /.scroll-area -->

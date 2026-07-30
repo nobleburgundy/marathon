@@ -600,6 +600,38 @@ html, body {
   opacity: 0.4;
 }
 
+/* ── Settings page ───────────────────────────────────────────────────────────*/
+
+.settings-group {
+  margin-bottom: 40px;
+}
+
+.settings-group-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 10px;
+}
+
+.settings-default-plan-name {
+  font-family: 'Space Mono', monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+#settings-default-plan-content .today-plan-links {
+  margin-top: 14px;
+}
+
+#settings-default-plan-content .today-plan-edit-date {
+  margin-top: 14px;
+}
+
 /* ── Current Plan page ───────────────────────────────────────────────────────*/
 
 #currentplan-summary {
@@ -959,6 +991,26 @@ html, body {
   font-weight: 700;
   color: var(--text);
   white-space: nowrap;
+}
+
+/* Current Plan's List view only (opt-in via showWeekTotal) — fixed layout
+   keeps the 7 day columns even width regardless of cell content length
+   (e.g. "rest/x-train" vs "8 mi"), with the week-number and total columns
+   pinned narrower rather than sharing that even split. */
+.plan-table-fixed {
+  table-layout: fixed;
+}
+
+.plan-table-num-col {
+  width: 56px;
+}
+
+.plan-table-total-col {
+  width: 70px;
+}
+
+.plan-table-scroll-hint {
+  margin-top: 4px;
 }
 
 .day-miles     { display: block; font-size: 13px; font-weight: 500; }

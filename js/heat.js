@@ -859,10 +859,16 @@
   let humidityMode = 'dew'; // 'dew' | 'rh'
 
   function initHumidityToggle() {
-    document.querySelectorAll('.heat-toggle-btn').forEach((btn) => {
+    // Scoped to this toggle's own container — .heat-toggle-btn is reused by
+    // several unrelated toggles on the page (Current Plan's Calendar/List
+    // view, Settings' week-start pickers), and an unscoped query here would
+    // also react to clicks on those, plus wipe their .heat-toggle-active
+    // state when re-applying it "only on the clicked button" page-wide.
+    const container = document.getElementById('heat-humidity-toggle');
+    container.querySelectorAll('.heat-toggle-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         humidityMode = btn.dataset.mode;
-        document.querySelectorAll('.heat-toggle-btn').forEach((b) =>
+        container.querySelectorAll('.heat-toggle-btn').forEach((b) =>
           b.classList.toggle('heat-toggle-active', b === btn));
         document.querySelector('.heat-humidity-header label').textContent =
           humidityMode === 'dew' ? 'Dew Point' : 'Humidity';
