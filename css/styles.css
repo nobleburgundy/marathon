@@ -428,9 +428,14 @@ html, body {
 
 .today-plan-hero {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   gap: 14px;
   margin-bottom: 16px;
+  /* Matches .today-plan-hero-num's 96px line box, so switching to a
+     word state (REST/SOON/DONE, rendered smaller) doesn't shrink the row
+     and shift everything below it — REST just sits flush at the bottom,
+     same as a numeric day's hero would. */
+  min-height: 96px;
 }
 
 .today-plan-hero-num {
@@ -446,7 +451,7 @@ html, body {
    short word instead of a mileage figure — full hero size reads oddly for
    text, so this scales it down closer to a headline than a giant digit. */
 .today-plan-hero-num.today-plan-hero-word {
-  font-size: 40px;
+  font-size: 52px;
   letter-spacing: 0.04em;
 }
 
@@ -487,6 +492,10 @@ html, body {
   color: var(--text2);
   line-height: 1.6;
   max-width: 520px;
+  /* Reserves 2 lines up front — tip copy varies in length by run type, so
+     without this the "This Week" grid below shifts a few px on every
+     day click depending on whether that day's tip wraps to 1 or 2 lines. */
+  min-height: calc(1.6em * 2);
 }
 
 /* ── Today's plan: 7-day week chart ──────────────────────────────────────────*/
@@ -497,14 +506,48 @@ html, body {
   border-top: 1px solid var(--border);
 }
 
+/* Single row: [Prev] [This Week / date-range label] [Next] — mirrors
+   .currentplan-cal-nav elsewhere in the app. The page buttons are
+   desktop-only (touch users already have the swipe gesture); on mobile
+   they're display:none and the label simply grows to fill the row. */
+.today-week-nav {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.today-week-nav .link-btn {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.today-week-nav .link-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .today-week-chart-label {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text3);
-  margin-bottom: 16px;
+}
+
+.today-week-back-link {
+  margin-top: 0;
+  white-space: nowrap;
 }
 
 .today-week-chart-label span {
@@ -514,10 +557,22 @@ html, body {
   color: var(--text2);
 }
 
+/* Clips .week-cal while it's mid-swipe/slide so the animation stays
+   contained in the card instead of overflowing the page horizontally.
+   Scoped to just the grid (not .today-week-chart as a whole) so the nav
+   row above can still wrap instead of being silently cut off. */
+.week-cal-viewport {
+  overflow-x: hidden;
+}
+
 .week-cal {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 6px;
+  /* Home's week-cal is swipeable (prev/next week) — reserve horizontal
+     panning for our own touch handler, leave vertical page scroll native. */
+  touch-action: pan-y;
+  will-change: transform;
 }
 
 .week-cal-cell {
@@ -583,8 +638,44 @@ html, body {
 }
 
 .week-cal-cell-today .week-cal-daylabel {
-  color: var(--accent);
+  /* var(--text), not var(--accent) — accent-on-bg2 measures ~1.6:1 contrast,
+     well under WCAG AA. The accent border already signals "today"; bold
+     dark text keeps the label legible instead of relying on a second,
+     illegible accent cue. */
+  color: var(--text);
   font-weight: 700;
+}
+
+/* Home's week chart is clickable — day cells are real <button>s, reset off
+   the native chrome. The Current Plan calendar reuses .week-cal-cell on
+   plain, non-interactive <div>s, so these resets are scoped to the tag. */
+button.week-cal-cell {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: inherit;
+  margin: 0;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+button.week-cal-cell:hover {
+  border-color: var(--accent);
+}
+
+/* The day currently shown in the hero above — filled solid so it reads as
+   "selected", distinct from the lighter outline-only .week-cal-cell-today
+   marker (which stays on the real today even when another day is picked). */
+.week-cal-cell-selected {
+  border-color: var(--accent);
+  border-width: 2px;
+  background: var(--accent);
+}
+
+.week-cal-cell-selected .week-cal-daylabel,
+.week-cal-cell-selected .week-cal-miles,
+.week-cal-cell-selected .week-cal-type {
+  color: var(--text); /* black text on cyan — 9.6:1 contrast, matches .btn */
 }
 
 /* A date with no plan data at all (outside the plan's active range). */
@@ -2106,7 +2197,15 @@ html, body {
   }
 
   .today-plan-hero-num.today-plan-hero-word {
-    font-size: 28px;
+    font-size: 34px;
+  }
+
+  .today-plan-hero {
+    min-height: 56px;
+  }
+
+  .today-week-page-btn {
+    display: none;
   }
 
   .week-cal {

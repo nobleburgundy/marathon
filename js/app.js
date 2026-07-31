@@ -281,6 +281,8 @@ function runTypeTip(type) {
     tempo: 'Comfortably hard — you can speak only a few words at a time. Lactate threshold effort.',
     speed: 'Warm up 1–2 mi easy. Run repeats at 5K–10K effort. Cool down 1–2 mi easy.',
     race:  'Trust your training. Start conservative, run your own race, enjoy every mile.',
+    rest:  'Full rest — no running today. Prioritize sleep, hydration, and mobility work.',
+    cross: 'Low-impact cross-training — swimming, cycling, or the elliptical. Keep the effort easy.',
   }[type] || '';
 }
 
@@ -411,6 +413,9 @@ function getPlanDayForDate(plan, raceDateStr, targetDateStr) {
 }
 
 const WEEK_DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const WEEK_DAY_LABELS_FULL = [
+  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+];
 
 // Short labels for the bottom-of-square run-type tag — distinct from
 // runTypeLabel()'s full-sentence versions, which are too long to fit here.
@@ -419,8 +424,18 @@ const WEEK_CAL_TYPE_LABEL = {
   pace: 'Pace', tempo: 'Tempo', speed: 'Speed', walk: 'Walk', race: 'Race',
 };
 
-/** Renders the 7-day week calendar (one square per day) for the plan's current week, with today highlighted. */
-function renderTodayWeekChart(weekDays, todayDayIndex) {
+// Populated by renderTodayPlan() whenever there's an active scheduled week —
+// lets clicking a day, or swiping to an adjacent week, re-render the hero
+// above without re-deriving the plan from scratch. `weekIndex` is whichever
+// week is currently displayed (starts on today's week); `todayWeekIndex` /
+// `todayDayIndex` stay fixed on the real today so it can still be marked
+// once the user has swiped away from it.
+let todayWeekChartState = null;
+// { plan, planStartDateStr, totalWeeks, todayWeekIndex, todayDayIndex,
+//   todayStr, setup, weekIndex, selectedDayIndex }
+
+/** Renders the 7-day week calendar (one square per day) for the plan's current week. `todayDayIndex` marks the real today; `selectedDayIndex` marks the day currently shown in the hero above — click a day to select it. */
+function renderTodayWeekChart(weekDays, todayDayIndex, selectedDayIndex) {
   const container = document.getElementById('today-week-chart');
   const calEl      = document.getElementById('today-week-cal');
   const totalEl    = document.getElementById('today-week-total');
@@ -429,16 +444,226 @@ function renderTodayWeekChart(weekDays, todayDayIndex) {
   totalEl.textContent = ` — ${totalMiles.toFixed(1)} mi total`;
 
   calEl.innerHTML = weekDays.map((d, i) => {
-    const cellClass = i === todayDayIndex ? 'week-cal-cell week-cal-cell-today' : 'week-cal-cell';
+    const classes = ['week-cal-cell'];
+    const isToday = i === todayDayIndex;
+    if (isToday) classes.push('week-cal-cell-today');
+    if (i === selectedDayIndex) classes.push('week-cal-cell-selected');
+    const ariaCurrent = isToday ? ' aria-current="date"' : '';
     return `
-      <div class="${cellClass}">
+      <button type="button" class="${classes.join(' ')}" data-day-index="${i}" aria-pressed="${i === selectedDayIndex}"${ariaCurrent}>
         <span class="week-cal-daylabel">${WEEK_DAY_LABELS[i]}</span>
         <span class="week-cal-miles">${d.miles}</span>
         <span class="week-cal-type week-cal-type-${d.type}">${WEEK_CAL_TYPE_LABEL[d.type] || d.type}</span>
-      </div>`;
+      </button>`;
   }).join('');
 
+  calEl.querySelectorAll('.week-cal-cell').forEach((cell) => {
+    cell.addEventListener('click', () => renderHeroForDay(Number(cell.dataset.dayIndex)));
+  });
+
   container.classList.remove('hidden');
+}
+
+// Non-numeric hero states (rest/cross/before/after) show a short word in the
+// hero slot rather than a mileage figure — reset to that smaller style each
+// call, since the same elements are reused for numeric run days too.
+function setTodayHero(text, unit, isWord) {
+  const milesEl = document.getElementById('today-plan-miles');
+  const unitEl  = document.getElementById('today-plan-unit');
+  milesEl.textContent = text;
+  unitEl.textContent  = unit;
+  milesEl.classList.toggle('today-plan-hero-word', isWord);
+}
+
+/** Renders the hero mileage + run description for a given day of the currently displayed week (defaults to today; clicking a day, or swiping to another week, re-renders for that day instead). */
+function renderHeroForDay(selectedIndex) {
+  const ctx = todayWeekChartState;
+  if (!ctx) return;
+  ctx.selectedDayIndex = selectedIndex;
+
+  const { plan, planStartDateStr, totalWeeks, todayWeekIndex, todayDayIndex, weekIndex, setup } = ctx;
+  const weekDays = plan.schedule[weekIndex];
+  const day      = weekDays[selectedIndex];
+  const dateStr  = addDays(planStartDateStr, weekIndex * 7 + selectedIndex);
+  const isToday  = weekIndex === todayWeekIndex && selectedIndex === todayDayIndex;
+
+  document.getElementById('today-plan-label-text').textContent =
+    isToday ? 'Today’s Plan' : `${WEEK_DAY_LABELS_FULL[selectedIndex]}’s Plan`;
+  document.getElementById('today-plan-date-suffix').textContent = ' — ' + formatDisplayDate(dateStr);
+  document.getElementById('today-plan-week').textContent = `Week ${weekIndex + 1} of ${totalWeeks}`;
+
+  const weekStartStr = addDays(planStartDateStr, weekIndex * 7);
+  const weekEndStr   = addDays(weekStartStr, 6);
+  document.getElementById('today-week-label-text').textContent = weekIndex === todayWeekIndex
+    ? 'This Week'
+    : `${formatShortDate(weekStartStr)} – ${formatShortDate(weekEndStr)}`;
+  document.getElementById('btn-back-to-today').classList.toggle('hidden', weekIndex === todayWeekIndex);
+  document.getElementById('btn-prev-week').disabled = weekIndex <= 0;
+  document.getElementById('btn-next-week').disabled = weekIndex >= totalWeeks - 1;
+
+  const typeEl = document.getElementById('today-plan-type');
+  const paceEl = document.getElementById('today-plan-pace');
+  const tipEl  = document.getElementById('today-plan-tip');
+
+  if (day.miles === 0) {
+    setTodayHero('REST', '', true);
+    typeEl.textContent = 'Rest Day';
+  } else {
+    setTodayHero(day.miles, 'mi', false);
+    typeEl.textContent = runTypeLabel(day.type);
+  }
+
+  tipEl.textContent = runTypeTip(day.type);
+
+  const typePace = (day.miles > 0 && setup.secPerMile) ? getPaceForType(day.type, setup.secPerMile) : null;
+  paceEl.textContent = typePace ? formatPace(typePace) : '';
+
+  renderTodayWeekChart(weekDays, weekIndex === todayWeekIndex ? todayDayIndex : -1, selectedIndex);
+}
+
+/** Moves the week chart to the previous (-1) or next (+1) week of the plan, keeping the same weekday selected — clamps at the plan's first/last week. Triggered by swiping on mobile. */
+function changeTodayWeek(delta) {
+  const ctx = todayWeekChartState;
+  if (!ctx) return;
+  const newWeekIndex = ctx.weekIndex + delta;
+  if (newWeekIndex < 0 || newWeekIndex >= ctx.totalWeeks) return;
+  ctx.weekIndex = newWeekIndex;
+  renderHeroForDay(ctx.selectedDayIndex);
+}
+
+// Shared slide+fade animation for the week-cal grid — used by both the
+// swipe gesture and the "Back to Today" link, so navigating the week reads
+// as one consistent motion regardless of how it was triggered.
+let weekCalDragWidth = 300; // last-measured grid width, refreshed before each gesture/jump
+
+function setWeekCalTransform(px, animate) {
+  const calEl = document.getElementById('today-week-cal');
+  if (!calEl) return;
+  calEl.style.transition = animate
+    ? 'transform 0.22s cubic-bezier(0.22, 0.8, 0.2, 1), opacity 0.22s'
+    : 'none';
+  calEl.style.transform = `translateX(${px}px)`;
+  calEl.style.opacity   = String(Math.max(0.4, 1 - Math.abs(px) / weekCalDragWidth));
+}
+
+function afterWeekCalTransform(onDone) {
+  const calEl = document.getElementById('today-week-cal');
+  if (!calEl) { onDone(); return; }
+  calEl.addEventListener('transitionend', function handler(e) {
+    if (e.propertyName !== 'transform') return;
+    calEl.removeEventListener('transitionend', handler);
+    onDone();
+  });
+}
+
+function springWeekCalBack() {
+  setWeekCalTransform(0, true);
+}
+
+// Slides the current week fully out, applies `mutateFn` (updates state and
+// rebuilds the grid's cells), then slides the new content in from the
+// opposite edge — the same "exit, reposition, enter" sequence native
+// calendar apps use for week navigation.
+function animateWeekCalSwap(direction, mutateFn) {
+  const calEl = document.getElementById('today-week-cal');
+  if (!calEl) { mutateFn(); return; }
+  setWeekCalTransform(-direction * weekCalDragWidth, true);
+  afterWeekCalTransform(() => {
+    mutateFn();
+    setWeekCalTransform(direction * weekCalDragWidth, false);
+    void calEl.offsetWidth; // force reflow so the instant position commits before animating
+    setWeekCalTransform(0, true);
+  });
+}
+
+function slideToWeek(direction) {
+  const ctx = todayWeekChartState;
+  const newIndex = ctx ? ctx.weekIndex + direction : -1;
+  if (!ctx || newIndex < 0 || newIndex >= ctx.totalWeeks) { springWeekCalBack(); return; }
+  // Refreshed here (not just on touchstart) so the desktop prev/next
+  // buttons — which never fire a touch gesture — still slide the correct
+  // distance instead of relying on a stale/default width.
+  const calEl = document.getElementById('today-week-cal');
+  if (calEl) weekCalDragWidth = calEl.getBoundingClientRect().width || weekCalDragWidth;
+  animateWeekCalSwap(direction, () => changeTodayWeek(direction));
+}
+
+/** Jumps the week chart back to today's week/day, sliding in from whichever side today lies on. Wired to the "Back to Today" link, which only shows once the user has swiped to another week. */
+function jumpToTodayWeek() {
+  const ctx = todayWeekChartState;
+  if (!ctx || ctx.weekIndex === ctx.todayWeekIndex) return;
+  const calEl = document.getElementById('today-week-cal');
+  if (calEl) weekCalDragWidth = calEl.getBoundingClientRect().width || weekCalDragWidth;
+  const direction = ctx.weekIndex > ctx.todayWeekIndex ? -1 : 1;
+  animateWeekCalSwap(direction, () => {
+    ctx.weekIndex = ctx.todayWeekIndex;
+    renderHeroForDay(ctx.todayDayIndex);
+  });
+}
+
+// Swipe-to-change-week for touch devices (phone/tablet) — attached once to
+// the week-cal container, which persists across renderTodayWeekChart()
+// re-renders since only its innerHTML (the day cells) is replaced.
+//
+// The grid tracks the finger 1:1 while dragging (direct manipulation reads
+// as far more "swipeable" than a static grid that only reacts on release),
+// resists at the plan's first/last week like a native scroll bounce, and on
+// release either completes a slide+fade into the new week or springs back.
+function initTodayWeekSwipe() {
+  const calEl = document.getElementById('today-week-cal');
+  if (!calEl) return;
+
+  const SWIPE_THRESHOLD = 40; // px of horizontal travel to count as a committed swipe
+  const DIRECTION_LOCK  = 10; // px of travel before committing to h-swipe vs v-scroll
+  let startX = 0, startY = 0, tracking = false, decided = false, isHorizontal = false;
+  let dragDx = 0;
+
+  calEl.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    weekCalDragWidth = calEl.getBoundingClientRect().width || weekCalDragWidth;
+    tracking = true;
+    decided = false;
+    isHorizontal = false;
+    dragDx = 0;
+  }, { passive: true });
+
+  calEl.addEventListener('touchmove', (e) => {
+    if (!tracking || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+
+    if (!decided) {
+      if (Math.abs(dx) < DIRECTION_LOCK && Math.abs(dy) < DIRECTION_LOCK) return;
+      decided = true;
+      isHorizontal = Math.abs(dx) > Math.abs(dy);
+    }
+    if (!isHorizontal) return;
+
+    // Once committed to a horizontal swipe, stop the page from also
+    // scrolling vertically underneath the gesture.
+    if (e.cancelable) e.preventDefault();
+
+    const ctx     = todayWeekChartState;
+    const atStart = ctx && ctx.weekIndex === 0 && dx > 0;
+    const atEnd   = ctx && ctx.weekIndex === ctx.totalWeeks - 1 && dx < 0;
+    dragDx = (atStart || atEnd) ? dx * 0.35 : dx; // rubber-band resistance at the plan's edges
+    setWeekCalTransform(dragDx, false);
+  }, { passive: false });
+
+  calEl.addEventListener('touchend', () => {
+    if (!tracking) return;
+    tracking = false;
+    if (!isHorizontal) return;
+    if (Math.abs(dragDx) >= SWIPE_THRESHOLD) slideToWeek(dragDx < 0 ? 1 : -1);
+    else springWeekCalBack();
+  });
+
+  calEl.addEventListener('touchcancel', () => {
+    if (tracking && isHorizontal) springWeekCalBack();
+    tracking = false;
+  });
 }
 
 // Reads the currently-configured default plan (if any) and, if there's an
@@ -509,27 +734,18 @@ function renderTodayPlan() {
   const todayStr = toDateStr(new Date());
   const result   = getPlanDayForDate(plan, setup.raceDate, todayStr);
 
-  document.getElementById('today-plan-date-suffix').textContent = ' — ' + formatDisplayDate(todayStr);
-
-  const milesEl = document.getElementById('today-plan-miles');
-  const unitEl  = document.getElementById('today-plan-unit');
   const typeEl  = document.getElementById('today-plan-type');
   const paceEl  = document.getElementById('today-plan-pace');
   const weekEl  = document.getElementById('today-plan-week');
   const tipEl   = document.getElementById('today-plan-tip');
   const weekChartEl = document.getElementById('today-week-chart');
 
-  // Non-numeric states (rest/cross/before/after) show a short word in the
-  // hero slot rather than a mileage figure — reset to that smaller style
-  // each render, since the same elements are reused for numeric run days too.
-  function setHero(text, unit, isWord) {
-    milesEl.textContent = text;
-    unitEl.textContent  = unit;
-    milesEl.classList.toggle('today-plan-hero-word', isWord);
-  }
+  document.getElementById('today-plan-label-text').textContent = 'Today’s Plan';
+  document.getElementById('today-plan-date-suffix').textContent = ' — ' + formatDisplayDate(todayStr);
+  todayWeekChartState = null;
 
   if (result.state === 'before') {
-    setHero('SOON', '', true);
+    setTodayHero('SOON', '', true);
     typeEl.textContent = `${plan.name} starts ${formatDisplayDate(result.startDateStr)}`;
     paceEl.textContent = '';
     weekEl.textContent = '';
@@ -539,7 +755,7 @@ function renderTodayPlan() {
   }
 
   if (result.state === 'after') {
-    setHero('DONE', '', true);
+    setTodayHero('DONE', '', true);
     typeEl.textContent = 'Race complete — nice work!';
     paceEl.textContent = '';
     weekEl.textContent = '';
@@ -548,24 +764,17 @@ function renderTodayPlan() {
     return;
   }
 
-  const { day, week, totalWeeks, dayIndex, weekDays } = result;
+  const { totalWeeks, dayIndex } = result;
+  const TOTAL_DAYS       = plan.schedule.length * 7;
+  const planStartDateStr = addDays(setup.raceDate, -(TOTAL_DAYS - 1));
 
-  if (day.miles === 0) {
-    // Cross-train days display identically to rest days (matches the
-    // "Rest" label used for both in the week calendar below).
-    setHero('REST', '', true);
-    typeEl.textContent = 'Rest Day';
-  } else {
-    setHero(day.miles, 'mi', false);
-    typeEl.textContent = runTypeLabel(day.type);
-  }
-
-  weekEl.textContent = `Week ${week} of ${totalWeeks}`;
-  tipEl.textContent  = runTypeTip(day.type);
-  renderTodayWeekChart(weekDays, dayIndex);
-
-  const typePace = (day.miles > 0 && setup.secPerMile) ? getPaceForType(day.type, setup.secPerMile) : null;
-  paceEl.textContent = typePace ? formatPace(typePace) : '';
+  todayWeekChartState = {
+    plan, planStartDateStr, totalWeeks,
+    todayWeekIndex: result.week - 1, todayDayIndex: dayIndex,
+    todayStr, setup,
+    weekIndex: result.week - 1, selectedDayIndex: dayIndex,
+  };
+  renderHeroForDay(dayIndex);
 }
 
 // ── Current Plan page ─────────────────────────────────────────────────────────
@@ -1585,6 +1794,10 @@ window.addEventListener('load', () => {
   document.getElementById('btn-goto-settings').addEventListener('click', () => switchTab('settings'));
 
   renderTodayPlan();
+  initTodayWeekSwipe();
+  document.getElementById('btn-back-to-today').addEventListener('click', jumpToTodayWeek);
+  document.getElementById('btn-prev-week').addEventListener('click', () => slideToWeek(-1));
+  document.getElementById('btn-next-week').addEventListener('click', () => slideToWeek(1));
 
   // Current Plan page
   document.getElementById('btn-view-full-plan')

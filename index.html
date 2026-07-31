@@ -77,22 +77,31 @@
 
         <!-- Today's plan hero (once a default plan is configured) -->
         <div id="today-plan" class="today-plan hidden">
-          <p class="section-label today-plan-label">Today&rsquo;s Plan<span class="today-plan-date" id="today-plan-date-suffix"></span></p>
+          <p class="section-label today-plan-label"><span id="today-plan-label-text">Today&rsquo;s Plan</span><span class="today-plan-date" id="today-plan-date-suffix"></span></p>
           <div class="today-plan-card">
-            <div class="today-plan-hero">
-              <span class="today-plan-hero-num" id="today-plan-miles">0</span>
-              <span class="today-plan-hero-unit" id="today-plan-unit">mi</span>
+            <div class="today-plan-summary" aria-live="polite" aria-atomic="true">
+              <div class="today-plan-hero">
+                <span class="today-plan-hero-num" id="today-plan-miles">0</span>
+                <span class="today-plan-hero-unit" id="today-plan-unit">mi</span>
+              </div>
+              <div class="today-plan-meta">
+                <span class="today-plan-type" id="today-plan-type"></span>
+                <span class="today-plan-pace" id="today-plan-pace"></span>
+                <span class="today-plan-week" id="today-plan-week"></span>
+              </div>
+              <p class="today-plan-tip" id="today-plan-tip"></p>
             </div>
-            <div class="today-plan-meta">
-              <span class="today-plan-type" id="today-plan-type"></span>
-              <span class="today-plan-pace" id="today-plan-pace"></span>
-              <span class="today-plan-week" id="today-plan-week"></span>
-            </div>
-            <p class="today-plan-tip" id="today-plan-tip"></p>
 
             <div id="today-week-chart" class="today-week-chart hidden">
-              <p class="today-week-chart-label">This Week<span id="today-week-total"></span></p>
-              <div class="week-cal" id="today-week-cal"></div>
+              <div class="today-week-nav">
+                <button type="button" class="link-btn today-week-page-btn" id="btn-prev-week">&larr; Prev</button>
+                <p class="today-week-chart-label">
+                  <span><span id="today-week-label-text">This Week</span><span id="today-week-total"></span></span>
+                  <button type="button" class="link-btn today-week-back-link hidden" id="btn-back-to-today">Back to Today</button>
+                </p>
+                <button type="button" class="link-btn today-week-page-btn" id="btn-next-week">Next &rarr;</button>
+              </div>
+              <div class="week-cal-viewport"><div class="week-cal" id="today-week-cal"></div></div>
               <div class="week-cal-legend">
                 <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:var(--green)"></span>Easy</span>
                 <span class="week-cal-legend-item"><span class="week-cal-legend-swatch" style="background:#b86d10"></span>Moderate</span>
