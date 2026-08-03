@@ -531,71 +531,176 @@ function changeTodayWeek(delta) {
   renderHeroForDay(ctx.selectedDayIndex);
 }
 
-// Shared slide+fade animation for the week-cal grid — used by both the
-// swipe gesture and the "Back to Today" link, so navigating the week reads
-// as one consistent motion regardless of how it was triggered.
-let weekCalDragWidth = 300; // last-measured grid width, refreshed before each gesture/jump
+/**
+ * Generic horizontal slide+fade pager — shared by the Home "This Week"
+ * widget and the Current Plan month calendar so swiping, scrolling, and
+ * clicking Prev/Next all read as the same motion everywhere it appears.
+ *
+ * `getEl` re-queries the transformed/gesture element each time (its
+ * innerHTML gets rebuilt on every page change, so a cached reference would
+ * go stale). `canGo(direction)` reports whether that direction is a valid
+ * move (used both to clamp real navigation and to rubber-band a touch drag
+ * at the ends); `go(direction)` performs the state mutation + re-render for
+ * a single step.
+ */
+function createSlidePager({ getEl, canGo, go }) {
+  let dragWidth = 300; // last-measured element width, refreshed before each gesture/jump
 
-function setWeekCalTransform(px, animate) {
-  const calEl = document.getElementById('today-week-cal');
-  if (!calEl) return;
-  calEl.style.transition = animate
-    ? 'transform 0.22s cubic-bezier(0.22, 0.8, 0.2, 1), opacity 0.22s'
-    : 'none';
-  calEl.style.transform = `translateX(${px}px)`;
-  calEl.style.opacity   = String(Math.max(0.4, 1 - Math.abs(px) / weekCalDragWidth));
+  function measure() {
+    const el = getEl();
+    if (el) dragWidth = el.getBoundingClientRect().width || dragWidth;
+  }
+
+  function setTransform(px, animate) {
+    const el = getEl();
+    if (!el) return;
+    el.style.transition = animate
+      ? 'transform 0.22s cubic-bezier(0.22, 0.8, 0.2, 1), opacity 0.22s'
+      : 'none';
+    el.style.transform = `translateX(${px}px)`;
+    el.style.opacity   = String(Math.max(0.4, 1 - Math.abs(px) / dragWidth));
+  }
+
+  function afterTransform(onDone) {
+    const el = getEl();
+    if (!el) { onDone(); return; }
+    el.addEventListener('transitionend', function handler(e) {
+      if (e.propertyName !== 'transform') return;
+      el.removeEventListener('transitionend', handler);
+      onDone();
+    });
+  }
+
+  function springBack() {
+    setTransform(0, true);
+  }
+
+  // Slides the current content fully out, applies `mutateFn` (updates
+  // state and rebuilds the element's contents), then slides the new
+  // content in from the opposite edge — the same "exit, reposition, enter"
+  // sequence native calendar apps use for paging.
+  function animateSwap(direction, mutateFn) {
+    measure();
+    const el = getEl();
+    setTransform(-direction * dragWidth, true);
+    afterTransform(() => {
+      mutateFn();
+      setTransform(direction * dragWidth, false);
+      if (el) void el.offsetWidth; // force reflow so the instant position commits before animating
+      setTransform(0, true);
+    });
+  }
+
+  function slide(direction) {
+    if (!canGo(direction)) { springBack(); return; }
+    animateSwap(direction, () => go(direction));
+  }
+
+  // Touch: the content tracks the finger 1:1 while dragging (direct
+  // manipulation reads as far more "swipeable" than static content that
+  // only reacts on release), resists at either end like a native scroll
+  // bounce, and on release either completes the swipe or springs back.
+  function attachTouch(gestureEl) {
+    const SWIPE_THRESHOLD = 40; // px of horizontal travel to count as a committed swipe
+    const DIRECTION_LOCK  = 10; // px of travel before committing to h-swipe vs v-scroll
+    let startX = 0, startY = 0, tracking = false, decided = false, isHorizontal = false, dragDx = 0;
+
+    gestureEl.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      measure();
+      tracking = true;
+      decided = false;
+      isHorizontal = false;
+      dragDx = 0;
+    }, { passive: true });
+
+    gestureEl.addEventListener('touchmove', (e) => {
+      if (!tracking || e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+
+      if (!decided) {
+        if (Math.abs(dx) < DIRECTION_LOCK && Math.abs(dy) < DIRECTION_LOCK) return;
+        decided = true;
+        isHorizontal = Math.abs(dx) > Math.abs(dy);
+      }
+      if (!isHorizontal) return;
+
+      // Once committed to a horizontal swipe, stop the page from also
+      // scrolling vertically underneath the gesture.
+      if (e.cancelable) e.preventDefault();
+
+      const atStart = !canGo(-1) && dx > 0;
+      const atEnd   = !canGo(1) && dx < 0;
+      dragDx = (atStart || atEnd) ? dx * 0.35 : dx; // rubber-band resistance at either end
+      setTransform(dragDx, false);
+    }, { passive: false });
+
+    gestureEl.addEventListener('touchend', () => {
+      if (!tracking) return;
+      tracking = false;
+      if (!isHorizontal) return;
+      if (Math.abs(dragDx) >= SWIPE_THRESHOLD) slide(dragDx < 0 ? 1 : -1);
+      else springBack();
+    });
+
+    gestureEl.addEventListener('touchcancel', () => {
+      if (tracking && isHorizontal) springBack();
+      tracking = false;
+    });
+  }
+
+  // Wheel: desktop trackpad horizontal-swipe / shift+wheel paging. Only
+  // claims genuinely horizontal deltas (deltaX > deltaY) — plain vertical
+  // wheel/trackpad motion is left completely alone (no preventDefault) so
+  // the page underneath keeps scrolling smoothly no matter where the
+  // cursor sits over the calendar. Accumulates delta so a single physical
+  // gesture doesn't overshoot, and cools down after each page change so a
+  // continuous fling pages once per gesture instead of firing repeatedly
+  // while its own animation is still running.
+  function attachWheel(gestureEl) {
+    const WHEEL_THRESHOLD = 50;
+    let acc = 0;
+    let cooling = false;
+
+    gestureEl.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return; // vertical — let the page scroll
+      e.preventDefault();
+      if (cooling) return;
+      acc += e.deltaX;
+      if (Math.abs(acc) < WHEEL_THRESHOLD) return;
+      const direction = acc > 0 ? 1 : -1;
+      acc = 0;
+      cooling = true;
+      slide(direction);
+      setTimeout(() => { cooling = false; }, 450); // outlasts the ~0.44s exit+enter animation
+    }, { passive: false });
+  }
+
+  return { slide, animateSwap, attachTouch, attachWheel };
 }
 
-function afterWeekCalTransform(onDone) {
-  const calEl = document.getElementById('today-week-cal');
-  if (!calEl) { onDone(); return; }
-  calEl.addEventListener('transitionend', function handler(e) {
-    if (e.propertyName !== 'transform') return;
-    calEl.removeEventListener('transitionend', handler);
-    onDone();
-  });
-}
-
-function springWeekCalBack() {
-  setWeekCalTransform(0, true);
-}
-
-// Slides the current week fully out, applies `mutateFn` (updates state and
-// rebuilds the grid's cells), then slides the new content in from the
-// opposite edge — the same "exit, reposition, enter" sequence native
-// calendar apps use for week navigation.
-function animateWeekCalSwap(direction, mutateFn) {
-  const calEl = document.getElementById('today-week-cal');
-  if (!calEl) { mutateFn(); return; }
-  setWeekCalTransform(-direction * weekCalDragWidth, true);
-  afterWeekCalTransform(() => {
-    mutateFn();
-    setWeekCalTransform(direction * weekCalDragWidth, false);
-    void calEl.offsetWidth; // force reflow so the instant position commits before animating
-    setWeekCalTransform(0, true);
-  });
-}
+const todayWeekPager = createSlidePager({
+  getEl: () => document.getElementById('today-week-cal'),
+  canGo: (direction) => {
+    const ctx = todayWeekChartState;
+    return !!ctx && ctx.weekIndex + direction >= 0 && ctx.weekIndex + direction < ctx.totalWeeks;
+  },
+  go: (direction) => changeTodayWeek(direction),
+});
 
 function slideToWeek(direction) {
-  const ctx = todayWeekChartState;
-  const newIndex = ctx ? ctx.weekIndex + direction : -1;
-  if (!ctx || newIndex < 0 || newIndex >= ctx.totalWeeks) { springWeekCalBack(); return; }
-  // Refreshed here (not just on touchstart) so the desktop prev/next
-  // buttons — which never fire a touch gesture — still slide the correct
-  // distance instead of relying on a stale/default width.
-  const calEl = document.getElementById('today-week-cal');
-  if (calEl) weekCalDragWidth = calEl.getBoundingClientRect().width || weekCalDragWidth;
-  animateWeekCalSwap(direction, () => changeTodayWeek(direction));
+  todayWeekPager.slide(direction);
 }
 
 /** Jumps the week chart back to today's week/day, sliding in from whichever side today lies on. Wired to the "Back to Today" link, which only shows once the user has swiped to another week. */
 function jumpToTodayWeek() {
   const ctx = todayWeekChartState;
   if (!ctx || ctx.weekIndex === ctx.todayWeekIndex) return;
-  const calEl = document.getElementById('today-week-cal');
-  if (calEl) weekCalDragWidth = calEl.getBoundingClientRect().width || weekCalDragWidth;
   const direction = ctx.weekIndex > ctx.todayWeekIndex ? -1 : 1;
-  animateWeekCalSwap(direction, () => {
+  todayWeekPager.animateSwap(direction, () => {
     ctx.weekIndex = ctx.todayWeekIndex;
     renderHeroForDay(ctx.todayDayIndex);
   });
@@ -603,67 +708,11 @@ function jumpToTodayWeek() {
 
 // Swipe-to-change-week for touch devices (phone/tablet) — attached once to
 // the week-cal container, which persists across renderTodayWeekChart()
-// re-renders since only its innerHTML (the day cells) is replaced.
-//
-// The grid tracks the finger 1:1 while dragging (direct manipulation reads
-// as far more "swipeable" than a static grid that only reacts on release),
-// resists at the plan's first/last week like a native scroll bounce, and on
-// release either completes a slide+fade into the new week or springs back.
+// re-renders since only its innerHTML (the day cells) is replaced. Desktop
+// gets Prev/Next buttons instead (wired in the bootstrap section below).
 function initTodayWeekSwipe() {
   const calEl = document.getElementById('today-week-cal');
-  if (!calEl) return;
-
-  const SWIPE_THRESHOLD = 40; // px of horizontal travel to count as a committed swipe
-  const DIRECTION_LOCK  = 10; // px of travel before committing to h-swipe vs v-scroll
-  let startX = 0, startY = 0, tracking = false, decided = false, isHorizontal = false;
-  let dragDx = 0;
-
-  calEl.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) return;
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    weekCalDragWidth = calEl.getBoundingClientRect().width || weekCalDragWidth;
-    tracking = true;
-    decided = false;
-    isHorizontal = false;
-    dragDx = 0;
-  }, { passive: true });
-
-  calEl.addEventListener('touchmove', (e) => {
-    if (!tracking || e.touches.length !== 1) return;
-    const dx = e.touches[0].clientX - startX;
-    const dy = e.touches[0].clientY - startY;
-
-    if (!decided) {
-      if (Math.abs(dx) < DIRECTION_LOCK && Math.abs(dy) < DIRECTION_LOCK) return;
-      decided = true;
-      isHorizontal = Math.abs(dx) > Math.abs(dy);
-    }
-    if (!isHorizontal) return;
-
-    // Once committed to a horizontal swipe, stop the page from also
-    // scrolling vertically underneath the gesture.
-    if (e.cancelable) e.preventDefault();
-
-    const ctx     = todayWeekChartState;
-    const atStart = ctx && ctx.weekIndex === 0 && dx > 0;
-    const atEnd   = ctx && ctx.weekIndex === ctx.totalWeeks - 1 && dx < 0;
-    dragDx = (atStart || atEnd) ? dx * 0.35 : dx; // rubber-band resistance at the plan's edges
-    setWeekCalTransform(dragDx, false);
-  }, { passive: false });
-
-  calEl.addEventListener('touchend', () => {
-    if (!tracking) return;
-    tracking = false;
-    if (!isHorizontal) return;
-    if (Math.abs(dragDx) >= SWIPE_THRESHOLD) slideToWeek(dragDx < 0 ? 1 : -1);
-    else springWeekCalBack();
-  });
-
-  calEl.addEventListener('touchcancel', () => {
-    if (tracking && isHorizontal) springWeekCalBack();
-    tracking = false;
-  });
+  if (calEl) todayWeekPager.attachTouch(calEl);
 }
 
 // Reads the currently-configured default plan (if any) and, if there's an
@@ -779,7 +828,8 @@ function renderTodayPlan() {
 
 // ── Current Plan page ─────────────────────────────────────────────────────────
 
-let currentPlanCalMonth = null; // Date (first-of-month currently displayed)
+let currentPlanCalMonth = null; // Date (first-of-month currently anchored/scrolled to)
+let currentPlanScrollInitialized = false; // whether the one-time scroll-to-anchor has run
 let currentPlanViewMode = localStorage.getItem(STORAGE_CURRENTPLAN_VIEW) || 'calendar'; // 'calendar' | 'list'
 
 function formatShortDate(dateStr) {
@@ -821,35 +871,110 @@ function renderCurrentPlan() {
     currentPlanCalMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   }
 
-  renderCurrentPlanMonth(plan, startDateStr, config.raceDate, todayStr, getCalWeekStart());
+  renderCurrentPlanCalendar(plan, startDateStr, config.raceDate, todayStr, getCalWeekStart());
+  updateCurrentPlanCalNav();
+
+  // Scrolls to the anchor month exactly once, deferred until the tab is
+  // actually visible — this can also run while hidden (e.g. a Settings
+  // change before Current Plan has ever been opened), and scrollIntoView is
+  // a silent no-op on display:none content, so we wait rather than burn the
+  // one-time flag on a scroll that didn't actually happen. After it fires
+  // once, the list keeps whatever scroll position the user's left it at —
+  // matches how the old paged view remembered currentPlanCalMonth across
+  // tab switches instead of resetting it every time.
+  if (!currentPlanScrollInitialized && !document.getElementById('currentplan-view').classList.contains('hidden')) {
+    currentPlanScrollInitialized = true;
+    scrollToCurrentPlanMonth(currentPlanCalMonth, false);
+  }
+}
+
+/** Prev/Next click handler — steps the anchor month and smooth-scrolls its sticky header into view. */
+function stepCurrentPlanMonth(direction) {
+  if (!currentPlanCalMonth) return;
+  const btn = document.getElementById(direction < 0 ? 'currentplan-cal-prev' : 'currentplan-cal-next');
+  if (btn && btn.disabled) return;
+  currentPlanCalMonth = new Date(currentPlanCalMonth.getFullYear(), currentPlanCalMonth.getMonth() + direction, 1);
+  updateCurrentPlanCalNav();
+  scrollToCurrentPlanMonth(currentPlanCalMonth, true);
+}
+
+function scrollToCurrentPlanMonth(monthDate, smooth) {
+  const key    = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`;
+  const header = document.getElementById(`cp-month-${key}`);
+  if (header) header.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
+}
+
+/** Enables/disables Prev/Next based on currentPlanCalMonth vs. the plan's actual date range. Self-contained (re-derives the plan) so it can be called from the scroll tracker without threading extra state through. */
+function updateCurrentPlanCalNav() {
+  const config = getCurrentPlanConfig();
+  if (!config || !currentPlanCalMonth) return;
+  const plan = PLANS.find((p) => p.id === config.planId);
+  if (!plan) return;
+  const startDateStr = addDays(config.raceDate, -(plan.schedule.length * 7 - 1));
+  const thisMonthStr = `${currentPlanCalMonth.getFullYear()}-${String(currentPlanCalMonth.getMonth() + 1).padStart(2, '0')}`;
+  document.getElementById('currentplan-cal-prev').disabled = thisMonthStr <= startDateStr.slice(0, 7);
+  document.getElementById('currentplan-cal-next').disabled = thisMonthStr >= config.raceDate.slice(0, 7);
+}
+
+// Keeps currentPlanCalMonth in sync with whatever month is actually
+// scrolled into view (sticky headers make this the visually "current" one
+// at all times), so Prev/Next always step relative to where the user
+// actually is — not wherever they last clicked to — even after a manual
+// scroll, swipe, or trackpad gesture.
+function initCurrentPlanMonthScrollTracking() {
+  const weeksEl = document.getElementById('currentplan-weeks');
+  if (!weeksEl) return;
+  let queued = false;
+
+  function sync() {
+    queued = false;
+    if (currentPlanViewMode !== 'calendar') return;
+    if (document.getElementById('currentplan-view').classList.contains('hidden')) return;
+    const headers = weeksEl.querySelectorAll('.cp-month-header');
+    if (!headers.length) return;
+    const areaTop = weeksEl.getBoundingClientRect().top;
+    let active = headers[0];
+    headers.forEach((h) => {
+      if (h.getBoundingClientRect().top <= areaTop + 44) active = h;
+    });
+    const [y, m] = active.id.replace('cp-month-', '').split('-').map(Number);
+    currentPlanCalMonth = new Date(y, m - 1, 1);
+    updateCurrentPlanCalNav();
+  }
+
+  // .currentplan-weeks is its own bounded, overflow-y:auto pane (roughly
+  // one month tall) rather than part of the page's overall scroll, so the
+  // scroll event fires here directly, not on .scroll-area.
+  weeksEl.addEventListener('scroll', () => {
+    if (!queued) { queued = true; requestAnimationFrame(sync); }
+  }, { passive: true });
 }
 
 /**
- * Current Plan's calendar view: a traditional month grid. Week-start is a
- * user preference (Settings) — the plan's own week structure is always
- * Monday–Sunday internally (schedule day-index 0 = Monday, race always a
- * Sunday), so a Sunday-first calendar row doesn't align 1:1 with one plan
- * week the way a Monday-first row does — it spans the tail of one plan week
- * (its Sunday) plus the start of the next (Monday–Saturday). Rather than
- * track a row → plan-week correspondence, this looks up each day
- * individually by date and sums whatever 7 real dates are shown for that
- * row's total — a "calendar week" total, which is what a Sunday-first grid
- * actually implies (and reduces to the same thing as a "plan week" total
- * when Monday-first, since the two align in that case). The row label
- * names whichever plan week owns most of the row (via its Monday).
+ * Current Plan's calendar view: the entire plan as one continuously
+ * scrollable list of week-rows, with a sticky month-header divider
+ * wherever a row crosses into a new month — native scroll (touch, wheel,
+ * trackpad, scrollbar) is what moves you through past/future months, no
+ * custom paging/gesture code involved. Week-start is a user preference
+ * (Settings) — the plan's own week structure is always Monday–Sunday
+ * internally (schedule day-index 0 = Monday, race always a Sunday), so a
+ * Sunday-first calendar row doesn't align 1:1 with one plan week the way a
+ * Monday-first row does — it spans the tail of one plan week (its Sunday)
+ * plus the start of the next (Monday–Saturday). Rather than track a row →
+ * plan-week correspondence, this looks up each day individually by date
+ * and sums whatever 7 real dates are shown for that row's total — a
+ * "calendar week" total, which is what a Sunday-first grid actually
+ * implies (and reduces to the same thing as a "plan week" total when
+ * Monday-first, since the two align in that case). The row label names
+ * whichever plan week owns most of the row (via its Monday) — and that
+ * same Monday decides which month "owns" the row for the header divider.
  */
-function renderCurrentPlanMonth(plan, startDateStr, raceDateStr, todayStr, weekStartsOn) {
-  const year  = currentPlanCalMonth.getFullYear();
-  const month = currentPlanCalMonth.getMonth();
+function renderCurrentPlanCalendar(plan, startDateStr, raceDateStr, todayStr, weekStartsOn) {
   const totalWeeks = plan.schedule.length;
   const startsOnSunday = weekStartsOn === 'sunday';
 
-  document.getElementById('currentplan-cal-month').textContent =
-    currentPlanCalMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   document.getElementById('currentplan-cal-weekday-labels').innerHTML =
     WEEK_DAY_LABELS_BY_START[weekStartsOn].map((d) => `<span>${d}</span>`).join('');
-
-  const thisMonthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
 
   // Flat date → day lookup, independent of week/row alignment.
   const dayByDate = {};
@@ -863,12 +988,11 @@ function renderCurrentPlanMonth(plan, startDateStr, raceDateStr, todayStr, weekS
   // Monday-indexed (0=Mon..6=Sun) when the grid starts on Monday instead.
   const weekdayOffset = (date) => startsOnSunday ? date.getDay() : (date.getDay() + 6) % 7;
 
-  const firstOfMonth = new Date(year, month, 1);
-  const gridStartDateStr = addDays(toDateStr(firstOfMonth), -weekdayOffset(firstOfMonth));
+  const firstOfPlan = new Date(startDateStr + 'T00:00:00');
+  const gridStartDateStr = addDays(startDateStr, -weekdayOffset(firstOfPlan));
 
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const lastOfMonth = new Date(year, month, daysInMonth);
-  const gridEndDateStr = addDays(toDateStr(lastOfMonth), 6 - weekdayOffset(lastOfMonth));
+  const lastOfPlan = new Date(raceDateStr + 'T00:00:00');
+  const gridEndDateStr = addDays(raceDateStr, 6 - weekdayOffset(lastOfPlan));
 
   const numRows = Math.round(daysBetweenStr(gridStartDateStr, gridEndDateStr) / 7) + 1;
 
@@ -876,14 +1000,24 @@ function renderCurrentPlanMonth(plan, startDateStr, raceDateStr, todayStr, weekS
   // it starts on Sunday (Sunday leads, then Monday).
   const mondayOffsetInRow = startsOnSunday ? 1 : 0;
 
+  let lastMonthKey = null;
   const rows = [];
   for (let r = 0; r < numRows; r++) {
     const weekStartDateStr = addDays(gridStartDateStr, r * 7);
     const weekEndDateStr   = addDays(weekStartDateStr, 6);
     const containsToday    = todayStr >= weekStartDateStr && todayStr <= weekEndDateStr;
+    const mondayDateStr    = addDays(weekStartDateStr, mondayOffsetInRow);
+
+    const monthKey = mondayDateStr.slice(0, 7);
+    if (monthKey !== lastMonthKey) {
+      lastMonthKey = monthKey;
+      const monthLabel = new Date(mondayDateStr + 'T00:00:00')
+        .toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      rows.push(`<div class="cp-month-header" id="cp-month-${monthKey}">${monthLabel}</div>`);
+    }
 
     // Whichever plan week owns the Monday within this row, for the "Wk N" label.
-    const mondayIdx = daysBetweenStr(startDateStr, addDays(weekStartDateStr, mondayOffsetInRow));
+    const mondayIdx = daysBetweenStr(startDateStr, mondayDateStr);
     const weekIdx = (mondayIdx >= 0 && mondayIdx % 7 === 0 && mondayIdx / 7 < totalWeeks) ? mondayIdx / 7 : null;
 
     let weekTotal = 0;
@@ -892,20 +1026,18 @@ function renderCurrentPlanMonth(plan, startDateStr, raceDateStr, todayStr, weekS
     for (let di = 0; di < 7; di++) {
       const dateStr    = addDays(weekStartDateStr, di);
       const dayNum     = parseInt(dateStr.slice(8, 10), 10);
-      const inMonth    = dateStr.slice(0, 7) === thisMonthStr;
       const day        = dayByDate[dateStr] || null;
       const todayClass = dateStr === todayStr ? ' week-cal-cell-today' : '';
-      const monthClass = inMonth ? '' : ' week-cal-cell-outmonth';
 
       if (day) { weekTotal += day.miles; hasAnyData = true; }
 
       dayCells.push(day
-        ? `<div class="week-cal-cell${todayClass}${monthClass}">
+        ? `<div class="week-cal-cell${todayClass}">
              <span class="week-cal-daylabel">${dayNum}</span>
              <span class="week-cal-miles">${day.miles}</span>
              <span class="week-cal-type week-cal-type-${day.type}">${WEEK_CAL_TYPE_LABEL[day.type] || day.type}</span>
            </div>`
-        : `<div class="week-cal-cell week-cal-cell-empty${monthClass}">
+        : `<div class="week-cal-cell week-cal-cell-empty">
              <span class="week-cal-daylabel">${dayNum}</span>
            </div>`);
     }
@@ -921,9 +1053,6 @@ function renderCurrentPlanMonth(plan, startDateStr, raceDateStr, todayStr, weekS
       </div>`);
   }
   document.getElementById('currentplan-weeks').innerHTML = rows.join('');
-
-  document.getElementById('currentplan-cal-prev').disabled = thisMonthStr <= startDateStr.slice(0, 7);
-  document.getElementById('currentplan-cal-next').disabled = thisMonthStr >= raceDateStr.slice(0, 7);
 }
 
 // ── Calendar search & restore ─────────────────────────────────────────────────
@@ -1818,14 +1947,12 @@ window.addEventListener('load', () => {
   });
   applyCurrentPlanViewMode(); // sync DOM to the remembered choice (HTML hardcodes "Calendar" by default)
 
-  document.getElementById('currentplan-cal-prev').addEventListener('click', () => {
-    currentPlanCalMonth = new Date(currentPlanCalMonth.getFullYear(), currentPlanCalMonth.getMonth() - 1, 1);
-    renderCurrentPlan();
-  });
-  document.getElementById('currentplan-cal-next').addEventListener('click', () => {
-    currentPlanCalMonth = new Date(currentPlanCalMonth.getFullYear(), currentPlanCalMonth.getMonth() + 1, 1);
-    renderCurrentPlan();
-  });
+  // Prev/Next jump-scroll to a month's sticky header; the list itself is
+  // one continuous native-scroll region (touch, wheel, trackpad, scrollbar
+  // all just work — no custom gesture code).
+  document.getElementById('currentplan-cal-prev').addEventListener('click', () => stepCurrentPlanMonth(-1));
+  document.getElementById('currentplan-cal-next').addEventListener('click', () => stepCurrentPlanMonth(1));
+  initCurrentPlanMonthScrollTracking();
 
   // Settings page
   initSettingsToggle('settings-cal-week-start', STORAGE_CAL_WEEK_START, getCalWeekStart());

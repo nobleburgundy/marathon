@@ -684,13 +684,6 @@ button.week-cal-cell:hover {
   opacity: 0.4;
 }
 
-/* Days that spill into an adjacent month on the Current Plan calendar —
-   still shows real data (so the row reads as a complete week), just
-   dimmed to read as "not this month." */
-.week-cal-cell-outmonth {
-  opacity: 0.4;
-}
-
 /* ── Settings page ───────────────────────────────────────────────────────────*/
 
 .settings-group {
@@ -777,17 +770,11 @@ button.week-cal-cell:hover {
   cursor: default;
 }
 
-.currentplan-cal-month {
-  font-family: 'Space Mono', monospace;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-/* A handful of week-blocks stacked vertically, each showing its 7 days plus
-   the week's total mileage to the right — a paged window (5 weeks at a
-   time) rather than a traditional month grid, since a full 18–30 week plan
-   doesn't fit meaningfully on one screen either way. */
+/* The whole plan as one continuously scrollable list of week-rows (up to
+   ~30 for a long ultra plan — trivial DOM weight either way), with a
+   sticky .cp-month-header dividing each month. Native scroll (touch,
+   wheel, trackpad, scrollbar) is what moves through it; Prev/Next just
+   smooth-scroll a header into view rather than swapping views. */
 
 .currentplan-cal-weekdays {
   display: flex;
@@ -814,11 +801,39 @@ button.week-cal-cell:hover {
   text-align: center;
 }
 
+/* Bounded to roughly one month's height (a 6-row month is ~460px) so the
+   current month reads as "the view," with adjacent months scrolled just
+   out of frame rather than all sharing the page's full-length scroll —
+   the sticky .cp-month-header sticks to this box specifically now. */
 .currentplan-weeks {
   display: flex;
   flex-direction: column;
   gap: 0;
   margin-bottom: 48px;
+  max-height: 520px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Sticky divider — stays pinned at the top of the scroll viewport for as
+   long as its month's weeks are the ones in view, then the next one takes
+   over. This is what keeps "which month am I looking at" answered for
+   free while scrolling, no JS scroll-tracking needed for the visual part. */
+.cp-month-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  padding: 6px 0;
+  font-family: 'Space Mono', monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.cp-month-header + .cp-week-row {
+  margin-top: 12px;
 }
 
 .cp-week-row {
@@ -2249,8 +2264,12 @@ button.week-cal-cell:hover {
     min-height: 48px;
   }
 
-  .currentplan-cal-month {
+  .cp-month-header {
     font-size: 13px;
+  }
+
+  .currentplan-weeks {
+    max-height: 380px;
   }
 
   .signin-hero-unit {
