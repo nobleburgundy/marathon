@@ -178,7 +178,7 @@
           </button>
           <button type="button" class="wizard-option home-link-card" data-goto="plans">
             <span class="wizard-option-label">All Plans &rarr;</span>
-            <span class="wizard-option-detail">Compare every Hal Higdon plan side by side &mdash; mileage, days per week, and who it's for.</span>
+            <span class="wizard-option-detail">Compare every plan from 5K to 100 miles side by side &mdash; mileage, days per week, and who it's for.</span>
           </button>
           <button type="button" class="wizard-option home-link-card" data-goto="heat">
             <span class="wizard-option-label">Adjust for Heat &rarr;</span>
@@ -221,17 +221,23 @@
           <div class="form-grid">
 
             <div class="form-group">
-              <label for="race-date">Race Date</label>
+              <div class="label-row">
+                <label for="race-date">Race Date</label>
+                <label class="auto-pick-toggle" for="race-date-auto">
+                  <input type="checkbox" id="race-date-auto">
+                  <span class="auto-pick-switch" aria-hidden="true"></span>
+                  Auto-pick
+                </label>
+              </div>
               <input type="date" id="race-date" class="field">
+              <span class="hint hidden" id="race-date-auto-hint"></span>
             </div>
 
             <div class="form-group">
-              <label for="goal-pace">Goal Finish Time</label>
+              <label for="race-distance">Race Distance</label>
               <div class="select-wrap">
-                <select id="goal-pace" class="field"></select>
+                <select id="race-distance" class="field"></select>
               </div>
-              <div id="pace-tags"></div>
-              <span class="hint">Add multiple paces for group runs &mdash; each adds its own pace line to every event</span>
             </div>
 
             <div class="form-group">
@@ -241,6 +247,15 @@
               </div>
               <div id="plan-description"></div>
               <button id="btn-plans-guide" class="link-btn">Compare all plans &rarr;</button>
+            </div>
+
+            <div class="form-group">
+              <label for="goal-pace" id="goal-pace-label">Goal Finish Time</label>
+              <div class="select-wrap">
+                <select id="goal-pace" class="field"></select>
+              </div>
+              <div id="pace-tags"></div>
+              <span class="hint">Add multiple paces for group runs &mdash; each adds its own pace line to every event</span>
             </div>
 
             <div class="form-group" id="calendar-form-group">
@@ -314,6 +329,7 @@
       <!-- All plans view -->
       <div id="plans-view" class="hidden">
         <p class="section-label">Training Plans &mdash; Compare &amp; Choose</p>
+        <div class="distance-chips" id="plans-distance-chips" role="group" aria-label="Race distance"></div>
         <p class="plans-guide-intro">
           All plans build to a Sunday race. Choose based on your current weekly mileage,
           available training days, and whether you&rsquo;re focused on finishing or on time.

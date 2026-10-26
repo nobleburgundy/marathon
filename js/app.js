@@ -198,7 +198,8 @@ const TYPE_META = {
   tempo: { label: 'Tempo',     color: '#c97a1a' },
   speed: { label: 'Speed',     color: '#b5291c' },
   walk:  { label: 'Run / Walk', color: '#2d8abf' },
-  race:  { label: 'Race Day',  color: '#2d8abf' },
+  hike:  { label: 'Hike / Walk', color: '#6b7f3a' },
+  race:  { label: 'Race',      color: '#2d8abf' },
 };
 
 // ── Pace options ──────────────────────────────────────────────────────────────
@@ -219,6 +220,31 @@ const PACE_OPTIONS = [
   { finish: '6:00:00', secPerMile: 824 },
   { finish: '6:30:00', secPerMile: 893 },
 ];
+
+// Goal finish times offered for each non-marathon distance (the marathon
+// keeps PACE_OPTIONS above). Converted to an average pace per mile.
+const FINISH_TIMES_BY_DISTANCE = {
+  '5k':    ['15:00', '17:30', '20:00', '22:30', '25:00', '27:30', '30:00', '32:30', '35:00', '40:00', '45:00'],
+  '10k':   ['32:00', '35:00', '40:00', '45:00', '50:00', '55:00', '1:00:00', '1:05:00', '1:10:00', '1:20:00', '1:30:00'],
+  '10mi':  ['55:00', '1:05:00', '1:15:00', '1:25:00', '1:35:00', '1:45:00', '2:00:00', '2:15:00', '2:30:00'],
+  'half':  ['1:15:00', '1:30:00', '1:45:00', '2:00:00', '2:15:00', '2:30:00', '2:45:00', '3:00:00'],
+  '50k':   ['3:30:00', '4:00:00', '4:30:00', '5:00:00', '5:30:00', '6:00:00', '7:00:00', '8:00:00'],
+  '100mi': ['18:00:00', '20:00:00', '22:00:00', '24:00:00', '27:00:00', '30:00:00', '33:00:00', '36:00:00'],
+};
+
+function parseClock(str) {
+  return str.split(':').map(Number).reduce((acc, n) => acc * 60 + n, 0);
+}
+
+/** Goal-pace choices for a plan's race distance: [{ finish, secPerMile }]. */
+function getPaceOptionsForPlan(plan) {
+  const dist = planDistance(plan);
+  if (dist.id === 'marathon') return PACE_OPTIONS;
+  return (FINISH_TIMES_BY_DISTANCE[dist.id] || []).map((finish) => ({
+    finish,
+    secPerMile: Math.round(parseClock(finish) / dist.miles),
+  }));
+}
 
 // ── Pace tag UI ───────────────────────────────────────────────────────────────
 
@@ -255,22 +281,70 @@ function formatTime(totalSeconds) {
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-function getPaceForType(type, goalPace) {
+/**
+ * Suggested pace for a run type. Training paces are offsets from marathon
+ * pace, so for other race distances the goal pace is first converted to an
+ * equivalent marathon pace (Riegel's formula, T2 = T1 × (D2/D1)^1.06).
+ * 'pace' runs are always at the goal race's own pace.
+ */
+function getPaceForType(type, goalPace, raceMiles = 26.2) {
+  if (!goalPace) return null;
+  const marathonPace = raceMiles === 26.2
+    ? goalPace
+    : Math.round(goalPace * Math.pow(26.2 / raceMiles, 0.06));
   switch (type) {
-    case 'easy':  return goalPace + 90;
-    case 'walk':  return goalPace + 120;
-    case 'long':  return goalPace + 60;
+    case 'easy':  return marathonPace + 90;
+    case 'walk':  return marathonPace + 120;
+    case 'long':  return marathonPace + 60;
     case 'pace':  return goalPace;
-    case 'tempo': return goalPace - 20;
-    case 'speed': return goalPace - 45;
+    case 'tempo': return marathonPace - 20;
+    case 'speed': return marathonPace - 45;
     default:      return null;
   }
+}
+
+/**
+ * Suggested pace for one day of a plan. Days that name a race pace in their
+ * source (Hal's "400s at 5K pace", tempo "near 10K pace") use that distance's
+ * equivalent of the goal pace; everything else uses the run-type offsets.
+ */
+function planPaceForDay(plan, day, goalPace) {
+  if (!goalPace) return null;
+  const raceMiles = planDistance(plan).miles;
+  if (day.paceAt) {
+    const target = RACE_DISTANCES.find((d) => d.id === day.paceAt);
+    return Math.round(goalPace * Math.pow(target.miles / raceMiles, 0.06));
+  }
+  return getPaceForType(day.type, goalPace, raceMiles);
+}
+
+/** Tip for a day: the source's own note, else the run-type tip ("goal race pace" outside the marathon). */
+function planDayTip(plan, day) {
+  if (day.note) return day.note;
+  if (day.type === 'pace' && planDistance(plan).id !== 'marathon') {
+    return 'Run at your goal race pace. Stay controlled and focused.';
+  }
+  return runTypeTip(day.type);
+}
+
+/** Text for a day in tables, calendars and event titles: the source's own label, or its mileage. */
+function dayText(day) {
+  return day.label || `${day.miles} mi`;
+}
+
+/** Short form for small calendar squares: miles, a duration ("45m", "3h"), or a dash. */
+function dayShort(day) {
+  if (day.miles > 0) return String(day.miles);
+  const m = (day.label || '').match(/^(\d+(?:\.\d+)?(?:[–-]\d+)?)\s*(min|hr|h)\b/i);
+  if (m) return m[1] + (/^m/i.test(m[2]) ? 'm' : 'h');
+  return '—';
 }
 
 function runTypeLabel(type) {
   return {
     easy:  'Easy Run',
     walk:  'Run / Walk Intervals',
+    hike:  'Hike / Walk',
     long:  'Long Run',
     pace:  'Pace Run',
     tempo: 'Tempo Run',
@@ -285,6 +359,7 @@ function runTypeTip(type) {
     walk:  'Use Galloway run-walk intervals throughout. Suggested ratio: run 30 sec, walk 30 sec. Adjust to your fitness level.',
     long:  'Run by effort, not pace. The goal is time on feet. Walk breaks are fine.',
     pace:  'Run at your goal marathon pace. Stay controlled and focused.',
+    hike:  'Time on feet at an easy, steady effort. Walk the climbs, practice fueling.',
     tempo: 'Comfortably hard — you can speak only a few words at a time. Lactate threshold effort.',
     speed: 'Warm up 1–2 mi easy. Run repeats at 5K–10K effort. Cool down 1–2 mi easy.',
     race:  'Trust your training. Start conservative, run your own race, enjoy every mile.',
@@ -297,29 +372,35 @@ function runTypeTip(type) {
  * Build the calendar event description, including the machine-readable
  * metadata tag that allows the app to reconstruct the plan on future visits.
  */
-function buildDescription(day, paces, planId, raceDate) {
+function buildDescription(day, paces, plan, raceDate, isFinalRace) {
   const { miles, type } = day;
   let body;
 
-  if (type === 'race') {
+  if (type === 'race' && isFinalRace) {
     const paceLines = paces.map((p) => {
-      const finishSec = Math.round(p.secPerMile * 26.2);
+      const finishSec = Math.round(p.secPerMile * miles);
       return `Goal pace: ${formatPace(p.secPerMile)}  ·  Estimated finish: ${formatTime(finishSec)}`;
     }).join('\n');
-    body = [`Race Day — ${miles} mi`, paceLines, '', runTypeTip(type)].join('\n');
-  } else {
-    const paceLines = paces.map((p) => {
-      const typePace = getPaceForType(type, p.secPerMile);
-      return typePace ? `Suggested pace: ${formatPace(typePace)}` : null;
-    }).filter(Boolean).join('\n');
-    const lines = [runTypeLabel(type)];
+    const lines = [`Race Day — ${miles} mi`];
     if (paceLines) lines.push(paceLines);
     lines.push('', runTypeTip(type));
     body = lines.join('\n');
+  } else {
+    const paceLines = paces.map((p) => {
+      const typePace = planPaceForDay(plan, day, p.secPerMile);
+      return typePace ? `Suggested pace: ${formatPace(typePace)}` : null;
+    }).filter(Boolean).join('\n');
+    const lines = [runTypeLabel(type)];
+    if (day.label) lines.push(day.optional ? `${day.label} (optional)` : day.label);
+    if (paceLines) lines.push(paceLines);
+    lines.push('', planDayTip(plan, day));
+    body = lines.join('\n');
   }
 
-  // Metadata tag — parsed on future sign-ins to restore the plan.
-  const meta = `[marathon-planner: ${planId} | ${raceDate} | ${paces.map((p) => p.secPerMile).join(',')}]`;
+  // Metadata tag — parsed on future sign-ins to restore the plan. Effort-based
+  // plans can have no goal pace; that's stored as 0.
+  const paceList = paces.length ? paces.map((p) => p.secPerMile).join(',') : '0';
+  const meta = `[marathon-planner: ${plan.id} | ${raceDate} | ${paceList}]`;
   return `${body}\n${meta}`;
 }
 
@@ -332,12 +413,14 @@ function parseEventMetadata(description = '') {
   if (!m) return null;
   const planId   = m[1].trim();
   const raceDate = m[2].trim();
-  if (!PLANS.find((p) => p.id === planId)) return null;
-  const paces = m[3].split(',').map((s) => {
-    const sec = parseInt(s.trim(), 10);
-    return PACE_OPTIONS.find((o) => o.secPerMile === sec)
-      || { finish: formatTime(Math.round(sec * 26.2)), secPerMile: sec };
-  });
+  const plan = PLANS.find((p) => p.id === planId);
+  if (!plan) return null;
+  const options = getPaceOptionsForPlan(plan);
+  const paces = m[3].split(',')
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((sec) => sec > 0)
+    .map((sec) => options.find((o) => o.secPerMile === sec)
+      || { finish: formatTime(Math.round(sec * planDistance(plan).miles)), secPerMile: sec });
   return { planId, raceDate, paces };
 }
 
@@ -370,15 +453,24 @@ function buildEvents(plan, raceDateStr, paces) {
   const startDateStr = addDays(raceDateStr, -(TOTAL_DAYS - 1));
   const events = [];
 
+  const lastWeek = plan.schedule.length - 1;
   plan.schedule.forEach((week, wi) => {
     week.forEach((day, di) => {
-      if (day.miles === 0) return;
-      const dateStr = addDays(startDateStr, wi * 7 + di);
-      const title   = day.type === 'race' ? '26.2 mi — RACE DAY' : `${day.miles} mi`;
+      if (!dayIsRun(day)) return;
+      const dateStr     = addDays(startDateStr, wi * 7 + di);
+      const isFinalRace = day.type === 'race' && wi === lastWeek && di === 6;
+      let title;
+      if (isFinalRace) {
+        title = planDistance(plan).id === 'marathon'
+          ? '26.2 mi — RACE DAY'
+          : `${day.miles} mi — RACE DAY`;
+      } else {
+        title = day.optional ? `${dayText(day)} (optional)` : dayText(day);
+      }
       events.push({
         date:        dateStr,
         title,
-        description: buildDescription(day, paces, plan.id, raceDateStr),
+        description: buildDescription(day, paces, plan, raceDateStr, isFinalRace),
         type:        day.type,
       });
     });
@@ -429,6 +521,7 @@ const WEEK_DAY_LABELS_FULL = [
 const WEEK_CAL_TYPE_LABEL = {
   rest: 'Rest', cross: 'Rest', easy: 'Easy', long: 'Long',
   pace: 'Pace', tempo: 'Tempo', speed: 'Speed', walk: 'Walk', race: 'Race',
+  hike: 'Hike',
 };
 
 // Populated by renderTodayPlan() whenever there's an active scheduled week —
@@ -447,7 +540,7 @@ function renderTodayWeekChart(weekDays, todayDayIndex, selectedDayIndex) {
   const calEl      = document.getElementById('today-week-cal');
   const totalEl    = document.getElementById('today-week-total');
 
-  const totalMiles = weekDays.reduce((s, d) => s + d.miles, 0);
+  const totalMiles = weekMiles(weekDays);
   totalEl.textContent = ` — ${totalMiles.toFixed(1)} mi total`;
 
   calEl.innerHTML = weekDays.map((d, i) => {
@@ -459,7 +552,7 @@ function renderTodayWeekChart(weekDays, todayDayIndex, selectedDayIndex) {
     return `
       <button type="button" class="${classes.join(' ')}" data-day-index="${i}" aria-pressed="${i === selectedDayIndex}"${ariaCurrent}>
         <span class="week-cal-daylabel">${WEEK_DAY_LABELS[i]}</span>
-        <span class="week-cal-miles">${d.miles}</span>
+        <span class="week-cal-miles">${dayShort(d)}</span>
         <span class="week-cal-type week-cal-type-${d.type}">${WEEK_CAL_TYPE_LABEL[d.type] || d.type}</span>
       </button>`;
   }).join('');
@@ -522,17 +615,22 @@ function renderHeroForDay(selectedIndex) {
     return;
   }
 
-  if (day.miles === 0) {
+  if (!dayIsRun(day)) {
     setTodayHero('REST', '', true);
-    typeEl.textContent = 'Rest Day';
-  } else {
+    typeEl.textContent = day.label ? day.label.charAt(0).toUpperCase() + day.label.slice(1) : 'Rest Day';
+  } else if (day.miles > 0) {
     setTodayHero(day.miles, 'mi', false);
-    typeEl.textContent = runTypeLabel(day.type);
+    typeEl.textContent = day.label && !/^\d+(\.\d+)? mi$/.test(day.label) ? day.label : runTypeLabel(day.type);
+  } else {
+    const short = dayShort(day);
+    if (short !== '—') setTodayHero(short.slice(0, -1), short.endsWith('m') ? 'min' : 'hr', false);
+    else setTodayHero(WEEK_CAL_TYPE_LABEL[day.type].toUpperCase(), '', true);
+    typeEl.textContent = day.label || runTypeLabel(day.type);
   }
 
-  tipEl.textContent = runTypeTip(day.type);
+  tipEl.textContent = planDayTip(plan, day);
 
-  const typePace = (day.miles > 0 && setup.secPerMile) ? getPaceForType(day.type, setup.secPerMile) : null;
+  const typePace = dayIsRun(day) ? planPaceForDay(plan, day, setup.secPerMile) : null;
   paceEl.textContent = typePace ? formatPace(typePace) : '';
 
   renderTodayWeekChart(weekDays, weekIndex === todayWeekIndex ? todayDayIndex : -1, selectedIndex);
@@ -740,7 +838,7 @@ function runTypeToIntensity(type) {
   switch (type) {
     case 'race':                    return 'race';
     case 'tempo': case 'speed': case 'pace': return 'workout';
-    case 'easy':  case 'long':  case 'walk': return 'easy';
+    case 'easy':  case 'long':  case 'walk': case 'hike': return 'easy';
     default:                        return ''; // rest, cross
   }
 }
@@ -985,7 +1083,7 @@ function parseCalendarWorkout(ev) {
 
   // Run type — this app writes the run-type label as the first description line.
   const typeByLabel = {};
-  ['easy', 'walk', 'long', 'pace', 'tempo', 'speed', 'race'].forEach((t) => {
+  ['easy', 'walk', 'hike', 'long', 'pace', 'tempo', 'speed', 'race'].forEach((t) => {
     typeByLabel[runTypeLabel(t).toLowerCase()] = t;
   });
   let runType = '';
@@ -1194,13 +1292,13 @@ function renderCurrentPlan() {
 
   const TOTAL_DAYS   = plan.schedule.length * 7;
   const startDateStr = addDays(config.raceDate, -(TOTAL_DAYS - 1));
-  const totalMiles   = plan.schedule.flat().reduce((s, d) => s + d.miles, 0);
+  const totalMiles   = plan.schedule.reduce((s, w) => s + weekMiles(w), 0);
 
   const summaryEntries = [
     ['Plan',        plan.name],
     ['Race Date',   formatDisplayDate(config.raceDate)],
     ['Plan Start',  formatDisplayDate(startDateStr)],
-    ['Total Miles', totalMiles.toFixed(1) + ' mi'],
+    ['Total Miles', planHasEstimates(plan) ? `~${Math.round(totalMiles)} mi` : totalMiles.toFixed(1) + ' mi'],
   ];
   if (config.secPerMile) summaryEntries.splice(3, 0, ['Goal Pace', formatPace(config.secPerMile)]);
   document.getElementById('currentplan-summary').innerHTML = buildSummaryRowsHtml(summaryEntries);
@@ -1377,12 +1475,12 @@ function renderCurrentPlanCalendar(plan, startDateStr, raceDateStr, todayStr, we
       const day        = dayByDate[dateStr] || null;
       const todayClass = dateStr === todayStr ? ' week-cal-cell-today' : '';
 
-      if (day) { weekTotal += day.miles; hasAnyData = true; }
+      if (day) { weekTotal += dayCountedMiles(day); hasAnyData = true; }
 
       dayCells.push(day
         ? `<div class="week-cal-cell${todayClass}">
              <span class="week-cal-daylabel">${dayNum}</span>
-             <span class="week-cal-miles">${day.miles}</span>
+             <span class="week-cal-miles">${dayShort(day)}</span>
              <span class="week-cal-type week-cal-type-${day.type}">${WEEK_CAL_TYPE_LABEL[day.type] || day.type}</span>
            </div>`
         : `<div class="week-cal-cell week-cal-cell-empty">
@@ -1429,7 +1527,7 @@ async function searchExistingPlan(calendarId) {
     const plan = PLANS.find((p) => p.id === config.planId);
     if (!plan) return false;
 
-    saveCurrentPlan(config.planId, config.raceDate, config.paces[0].secPerMile);
+    saveCurrentPlan(config.planId, config.raceDate, config.paces.length ? config.paces[0].secPerMile : null);
     updateCurrentPlanNav();
 
     // Store event IDs in memory for potential deletion this session.
@@ -1439,8 +1537,8 @@ async function searchExistingPlan(calendarId) {
     // Sync form fields so "Back" works correctly.
     document.getElementById('race-date').value   = config.raceDate;
     document.getElementById('goal-pace').value   = '';
-    document.getElementById('plan-select').value = config.planId;
-    updatePlanDescription();
+    document.getElementById('race-date-auto').checked = false; // keep the calendar's own race date
+    setBuildFormPlan(config.planId);
     selectedPaces = config.paces;
     renderPaceTags();
 
@@ -1461,6 +1559,56 @@ async function searchExistingPlan(calendarId) {
 // ── Plans guide metadata ──────────────────────────────────────────────────────
 
 const PLAN_META = {
+  'hal-5k-novice': {
+    level:    'beginner',
+    bestFor:  'New runners, or anyone who wants a low-mileage build to a first 5K.',
+    approach: 'Three short runs a week at a conversational pace, a weekly walk that grows from 30 to 60 minutes, and optional run/walk days. The longest run is 3 miles.',
+  },
+  'hal-5k-intermediate': {
+    level:    'intermediate',
+    bestFor:  'Runners with a year or two at 15–20 mi/wk who have raced 5Ks and want a PR.',
+    approach: 'Five runs a week: 400m repeats at 5K pace alternate with tempo runs on Wednesdays, plus "fast" Saturday runs and Sunday long runs of 5–7 miles. A 5K test in week 4 checks progress.',
+  },
+  'hal-10k-novice': {
+    level:    'beginner',
+    bestFor:  'New runners, or experienced runners who want a gentle, low-mileage 10K build.',
+    approach: 'Three easy runs a week plus two cross-training days. Sunday runs build from 3 to 5.5 miles, and walking breaks are fine.',
+  },
+  'hal-10k-intermediate': {
+    level:    'intermediate',
+    bestFor:  'Runners doing 5–6 runs and 15–25 mi a week who have raced several times between 5K and the half.',
+    approach: 'Alternating 400m repeats at 5K pace and tempo runs each Wednesday, easy runs most other days, and a long run building to 8 miles, with a 5K tune-up race in week 4.',
+  },
+  'hal-10mi-novice': {
+    level:    'beginner',
+    bestFor:  'First-timers, or runners who have done little running, aiming at a 10 mile or 15K race.',
+    approach: 'Three runs a week plus cross-training and strength work. The Saturday long run builds to 8 miles over 10 weeks, with lighter weeks along the way.',
+  },
+  'hal-10mi-intermediate': {
+    level:    'intermediate',
+    bestFor:  'Runners doing 5–6 runs and 15–25 mi a week who have raced 10K to half marathon.',
+    approach: '800m repeats at 5K pace alternate with tempo runs, strength work follows easy runs, and the Saturday long run reaches 10 miles. Includes 5K and 10K tune-up races.',
+  },
+  'hal-half-novice-1': {
+    level:    'beginner',
+    bestFor:  'A first half marathon, for runners who can already run 3 miles, 3–4 times a week.',
+    approach: 'Easy runs on Tuesday and Thursday, a short run or cross-training on Wednesday, and a Sunday long run building to 10 miles. 5K and 10K tune-up races in weeks 6 and 9.',
+  },
+  'hal-half-intermediate-1': {
+    level:    'intermediate',
+    bestFor:  'Runners with a half or two behind them who want to finish stronger.',
+    approach: 'Endurance-based: five days of running, with half-marathon-pace runs on Wednesday and Saturday and a long run that reaches 12 miles. 5K and 10K tune-ups in weeks 6 and 9.',
+  },
+  'hal-50k': {
+    level:    'advanced',
+    bestFor:  'Marathoners ready to move up to their first 50K.',
+    approach: 'The first 18 weeks closely follow a marathon build, with no speedwork and an optional training marathon in week 18. From week 19 the weekend runs switch to time, up to 5 hours on feet. Every third week steps back.',
+  },
+  'inov8-100-mile': {
+    level:    'advanced',
+    bestFor:  'Experienced ultrarunners preparing for a hilly 100-mile trail race.',
+    approach: 'Effort-based: hill reps, surges, and tempo and fartlek sessions set by "race pace for 1h / 2h / 3h", long runs that include a share of your race\'s total climb, and hilly hikes of up to 8–9 hours. No pace targets.',
+  },
   'hal-novice-supreme': {
     level:    'beginner',
     bestFor:  'Absolute beginners or runners returning after a long break who want 30 weeks of gradual build-up.',
@@ -1528,9 +1676,39 @@ const PLAN_META = {
   },
 };
 
+function planHasEstimates(plan) {
+  return plan.schedule.some((w) => w.some(dayIsEstimated));
+}
+
+/** Weeks, run days per week (at the peak week) and peak weekly miles — for plan cards. */
+function planStats(plan) {
+  const totals    = plan.schedule.map(weekMiles);
+  const peakMiles = Math.max(...totals);
+  const peakWeek  = plan.schedule[totals.indexOf(peakMiles)];
+  return {
+    weeks:     plan.schedule.length,
+    daysPerWk: peakWeek.filter((d) => dayIsRun(d) && !d.optional).length,
+    peakMiles,
+  };
+}
+
 // ── Plans guide render ────────────────────────────────────────────────────────
 
+let plansGuideDistance = 'marathon';
+
 function renderPlansGuide() {
+  const chips = document.getElementById('plans-distance-chips');
+  chips.innerHTML = RACE_DISTANCES
+    .filter((d) => PLANS.some((p) => planDistance(p).id === d.id))
+    .map((d) => `<button type="button" class="distance-chip${d.id === plansGuideDistance ? ' distance-chip-active' : ''}" data-distance="${d.id}" aria-pressed="${d.id === plansGuideDistance}">${d.label}</button>`)
+    .join('');
+  chips.querySelectorAll('.distance-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      plansGuideDistance = btn.dataset.distance;
+      renderPlansGuide();
+    });
+  });
+
   const groups = [
     { level: 'beginner',     label: 'Beginner'     },
     { level: 'intermediate', label: 'Intermediate' },
@@ -1538,16 +1716,13 @@ function renderPlansGuide() {
   ];
 
   const html = groups.map(({ level, label }) => {
-    const groupPlans = PLANS.filter((p) => (PLAN_META[p.id] || {}).level === level);
+    const groupPlans = PLANS.filter((p) =>
+      planDistance(p).id === plansGuideDistance && (PLAN_META[p.id] || {}).level === level);
     if (!groupPlans.length) return '';
 
     const cards = groupPlans.map((plan) => {
-      const meta      = PLAN_META[plan.id] || {};
-      const weekMiles = plan.schedule.map((w) => w.reduce((s, d) => s + d.miles, 0));
-      const peakMiles = Math.max(...weekMiles);
-      const peakWeek  = plan.schedule[weekMiles.indexOf(peakMiles)];
-      const daysPerWk = peakWeek.filter((d) => d.miles > 0).length;
-      const weeks     = plan.schedule.length;
+      const meta = PLAN_META[plan.id] || {};
+      const { weeks, daysPerWk, peakMiles } = planStats(plan);
 
       return `
         <div class="plan-card">
@@ -1561,6 +1736,7 @@ function renderPlansGuide() {
           </div>
           <p class="plan-card-approach">${meta.approach || plan.description}</p>
           <p class="plan-card-bestfor"><span class="plan-card-bestfor-label">Best for:</span> ${meta.bestFor || ''}</p>
+          ${plan.source ? `<p class="plan-card-source">Source: <a href="${plan.source.url}" target="_blank" rel="noopener">${plan.source.label} ↗</a></p>` : ''}
           <button class="btn secondary plan-select-btn" data-plan-id="${plan.id}">Select this plan</button>
         </div>`;
     }).join('');
@@ -1634,11 +1810,48 @@ const WIZARD_QUESTIONS = [
   },
 ];
 
+const WIZARD_DISTANCE_QUESTION = {
+  id: 'distance',
+  question: 'What race are you training for?',
+  options: RACE_DISTANCES
+    .filter((d) => PLANS.some((p) => planDistance(p).id === d.id))
+    .map((d) => ({ value: d.id, label: d.label, detail: '' })),
+};
+
+// Non-marathon distances have only a novice and/or intermediate plan, so a
+// single question is enough to rank them.
+const WIZARD_DISTANCE_EXPERIENCE_QUESTION = {
+  id: 'distExperience',
+  question: 'Where are you starting from?',
+  options: [
+    { value: 'new',         label: 'New to this distance',  detail: 'Finishing comfortably is the goal' },
+    { value: 'experienced', label: 'I\'ve raced it before', detail: 'I want a faster time' },
+  ],
+};
+
 const wizardState = { step: 0, answers: {} };
 
 function getWizardQuestions() {
-  return WIZARD_QUESTIONS.filter((q) =>
-    q.id !== 'mileage' || wizardState.answers.experience !== 'first');
+  const distance = wizardState.answers.distance;
+  if (distance && distance !== 'marathon') {
+    const plansForDistance = PLANS.filter((p) => planDistance(p).id === distance);
+    return plansForDistance.length > 1
+      ? [WIZARD_DISTANCE_QUESTION, WIZARD_DISTANCE_EXPERIENCE_QUESTION]
+      : [WIZARD_DISTANCE_QUESTION];
+  }
+  return [WIZARD_DISTANCE_QUESTION, ...WIZARD_QUESTIONS.filter((q) =>
+    q.id !== 'mileage' || wizardState.answers.experience !== 'first')];
+}
+
+/** Ranks a non-marathon distance's plans: beginner plans first for new runners, harder ones first otherwise. */
+function recommendForDistance(distance, experience) {
+  const order = experience === 'experienced'
+    ? ['advanced', 'intermediate', 'beginner']
+    : ['beginner', 'intermediate', 'advanced'];
+  return PLANS
+    .filter((p) => planDistance(p).id === distance)
+    .sort((a, b) =>
+      order.indexOf((PLAN_META[a.id] || {}).level) - order.indexOf((PLAN_META[b.id] || {}).level));
 }
 
 function initWizard() {
@@ -1778,7 +1991,10 @@ function buildMatchReason(planId, answers) {
 }
 
 function renderWizardResults() {
-  const recs      = scoreWizard(wizardState.answers);
+  const { distance, distExperience } = wizardState.answers;
+  const recs = distance && distance !== 'marathon'
+    ? recommendForDistance(distance, distExperience)
+    : scoreWizard(wizardState.answers);
   const container = document.getElementById('wizard-container');
 
   if (!recs.length) {
@@ -1792,11 +2008,8 @@ function renderWizardResults() {
   }
 
   const cards = recs.map((plan, i) => {
-    const weekMiles = plan.schedule.map((w) => w.reduce((s, d) => s + d.miles, 0));
-    const peakMiles = Math.max(...weekMiles);
-    const peakWeek  = plan.schedule[weekMiles.indexOf(peakMiles)];
-    const daysPerWk = peakWeek.filter((d) => d.miles > 0).length;
-    const reason    = buildMatchReason(plan.id, wizardState.answers);
+    const { daysPerWk, peakMiles } = planStats(plan);
+    const reason = buildMatchReason(plan.id, wizardState.answers);
 
     return `
       <div class="plan-card wizard-result-card${i === 0 ? ' wizard-result-top' : ''}">
@@ -1877,8 +2090,7 @@ function openTabFromHash() {
 }
 
 function selectPlanAndBuild(planId) {
-  document.getElementById('plan-select').value = planId;
-  updatePlanDescription();
+  setBuildFormPlan(planId);
   switchTab('plan');
   showStep('step-configure');
 }
@@ -1934,6 +2146,16 @@ const WEEK_DAY_LABELS_BY_START = {
   sunday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
 };
 
+/** "4.5", "14", "1.5" — estimates rounded to the nearest half mile. */
+function formatEstMiles(miles) {
+  const r = Math.round(miles * 2) / 2;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+function escapeAttr(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
 function buildPlanTableHtml(plan, primaryPace, showWeekTotal = false, weekStartsOn = 'monday') {
   const dayOrder   = WEEK_DAY_ORDER[weekStartsOn] || WEEK_DAY_ORDER.monday;
   const dayLabels  = WEEK_DAY_LABELS_BY_START[weekStartsOn] || WEEK_DAY_LABELS_BY_START.monday;
@@ -1941,21 +2163,32 @@ function buildPlanTableHtml(plan, primaryPace, showWeekTotal = false, weekStarts
   const tbody = plan.schedule.map((week, wi) => {
     const cells = dayOrder.map((di) => {
       const day = week[di];
-      if (day.miles === 0) {
-        const label = day.type === 'cross' ? 'rest/x-train' : 'rest';
-        return `<td class="day-${day.type}" data-type="${day.type}"><span class="day-miles">${label}</span></td>`;
+      const title = day.note ? ` title="${escapeAttr(day.note)}"` : '';
+      if (!dayIsRun(day)) {
+        const label = day.label || (day.type === 'cross' ? 'rest/x-train' : 'rest');
+        return `<td class="day-${day.type}" data-type="${day.type}"${title}><span class="day-miles">${label}</span></td>`;
       }
-      const pace    = primaryPace ? getPaceForType(day.type, primaryPace) : null;
-      const paceStr = pace ? formatPace(pace) : '';
-      return `<td class="day-${day.type}" data-type="${day.type}">
-        <span class="day-miles">${day.miles} mi</span>
+      const pace    = planPaceForDay(plan, day, primaryPace);
+      const hints   = [];
+      if (dayIsEstimated(day)) hints.push(`~${formatEstMiles(estimateDayMiles(day))} mi`);
+      if (pace) hints.push(formatPace(pace));
+      const paceStr = hints.join(' · ');
+      const optCls  = day.optional ? ' day-optional' : '';
+      return `<td class="day-${day.type}${optCls}" data-type="${day.type}"${title}>
+        <span class="day-miles">${dayText(day)}${day.optional ? ' <span class="day-opt-tag">opt</span>' : ''}</span>
         <span class="day-pace-hint">${paceStr}</span>
       </td>`;
     }).join('');
     const totalCell = showWeekTotal
-      ? `<td class="week-total">${week.reduce((s, d) => s + d.miles, 0).toFixed(1)} mi</td>`
+      ? `<td class="week-total">${weekMiles(week).toFixed(1)} mi</td>`
       : '';
-    return `<tr><td class="week-num">wk ${wi + 1}</td>${cells}${totalCell}</tr>`;
+    // Without a Total column (Build Plan preview), show the week's mileage
+    // under its number instead. "~" because timed workouts and optional days
+    // aren't counted.
+    const weekLabel = showWeekTotal
+      ? `wk ${wi + 1}`
+      : `wk ${wi + 1}<span class="week-num-miles">~${Math.round(weekMiles(week))} mi</span>`;
+    return `<tr><td class="week-num">${weekLabel}</td>${cells}${totalCell}</tr>`;
   }).join('');
 
   return `
@@ -1983,11 +2216,12 @@ function renderPreview(plan, raceDateStr, paces, restoredFromCalendar = false, r
   const TOTAL_DAYS   = plan.schedule.length * 7;
   const startDateStr = addDays(raceDateStr, -(TOTAL_DAYS - 1));
 
-  const primaryPace = paces[0].secPerMile;
-  const totalMiles  = plan.schedule.flat().reduce((s, d) => s + d.miles, 0);
+  const primaryPace = paces.length ? paces[0].secPerMile : null;
+  const totalMiles  = plan.schedule.reduce((s, w) => s + weekMiles(w), 0);
+  const raceMiles   = planDistance(plan).miles;
 
-  const paceDisplay   = paces.map((p) => formatPace(p.secPerMile)).join('<br>');
-  const finishDisplay = paces.map((p) => formatTime(Math.round(p.secPerMile * 26.2))).join('<br>');
+  const paceDisplay   = paces.length ? paces.map((p) => formatPace(p.secPerMile)).join('<br>') : 'By effort';
+  const finishDisplay = paces.length ? paces.map((p) => formatTime(Math.round(p.secPerMile * raceMiles))).join('<br>') : '—';
 
   // Section label
   document.getElementById('preview-section-label').textContent = restoredFromCalendar
@@ -1996,11 +2230,12 @@ function renderPreview(plan, raceDateStr, paces, restoredFromCalendar = false, r
 
   document.getElementById('plan-summary').innerHTML = buildSummaryRowsHtml([
     ['Plan',        plan.name],
+    ['Distance',    planDistance(plan).label],
     ['Race date',   formatDisplayDate(raceDateStr)],
     ['Plan start',  formatDisplayDate(startDateStr)],
     ['Goal pace',   paceDisplay],
     ['Est. finish', finishDisplay],
-    ['Total miles', totalMiles.toFixed(1) + ' mi'],
+    ['Total miles', planHasEstimates(plan) ? `~${Math.round(totalMiles)} mi` : totalMiles.toFixed(1) + ' mi'],
   ]);
 
   document.getElementById('plan-preview').innerHTML = buildPlanTableHtml(plan, primaryPace);
@@ -2086,7 +2321,19 @@ function updatePlanDescription() {
   const id   = document.getElementById('plan-select').value;
   const plan = PLANS.find((p) => p.id === id);
   const el   = document.getElementById('plan-description');
-  if (el && plan) el.textContent = plan.description;
+  if (el && plan) {
+    el.textContent = plan.description;
+    if (plan.source) {
+      const a = document.createElement('a');
+      a.href = plan.source.url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.className = 'plan-source-link';
+      a.textContent = `Source: ${plan.source.label} ↗`;
+      el.appendChild(document.createTextNode(' '));
+      el.appendChild(a);
+    }
+  }
   updateBQSelector();
 }
 
@@ -2112,6 +2359,89 @@ function updateBQSelector() {
   }
 }
 
+// ── Build Plan form: distance / plan / pace ───────────────────────────────────
+
+function getSelectedBuildPlan() {
+  return PLANS.find((p) => p.id === document.getElementById('plan-select').value) || PLANS[0];
+}
+
+function populatePlanSelect(distanceId) {
+  const planSelect = document.getElementById('plan-select');
+  planSelect.innerHTML = '';
+  PLANS.filter((p) => planDistance(p).id === distanceId).forEach((plan) => {
+    const el = document.createElement('option');
+    el.value       = plan.id;
+    el.textContent = plan.name;
+    planSelect.appendChild(el);
+  });
+}
+
+/** Rebuilds the goal-time dropdown for the selected plan's distance. */
+function rebuildPaceSelect() {
+  const plan       = getSelectedBuildPlan();
+  const paceSelect = document.getElementById('goal-pace');
+  paceSelect.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = plan.paceOptional ? 'Optional — select a goal time…' : 'Select a pace to add…';
+  paceSelect.appendChild(placeholder);
+  getPaceOptionsForPlan(plan).forEach((opt) => {
+    const el = document.createElement('option');
+    el.value       = opt.secPerMile;
+    el.textContent = `Finish ${opt.finish}  —  ${formatPace(opt.secPerMile)}`;
+    paceSelect.appendChild(el);
+  });
+  paceSelect.value = '';
+  document.getElementById('goal-pace-label').textContent =
+    plan.paceOptional ? 'Goal Finish Time (optional)' : 'Goal Finish Time';
+  // Purely effort-based plans have no pace targets to fill in.
+  document.getElementById('goal-pace').closest('.form-group').classList.toggle('hidden', !!plan.noPaces);
+}
+
+function onBuildPlanChanged() {
+  updatePlanDescription();
+  selectedPaces = [];
+  renderPaceTags();
+  rebuildPaceSelect();
+  applyAutoRaceDate();
+}
+
+/** This Monday if today is a Monday, otherwise the next one — plans always run Monday → race Sunday. */
+function nextMondayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() + (8 - d.getDay()) % 7);
+  return toDateStr(d);
+}
+
+/**
+ * "Auto-pick" race date: start the selected plan on the coming Monday and set
+ * the race date to the end of its last week. The date field is locked while
+ * it's on, and follows the plan if a different one is picked.
+ */
+function applyAutoRaceDate() {
+  const on    = document.getElementById('race-date-auto').checked;
+  const input = document.getElementById('race-date');
+  const hint  = document.getElementById('race-date-auto-hint');
+  input.disabled = on;
+  hint.classList.toggle('hidden', !on);
+  if (!on) return;
+
+  const plan     = getSelectedBuildPlan();
+  const startStr = nextMondayStr();
+  input.value = addDays(startStr, plan.schedule.length * 7 - 1);
+  hint.textContent = `Starts ${formatDisplayDate(startStr)} · ${plan.schedule.length} weeks`;
+}
+
+/** Points the whole Build Plan form (distance, plan list, goal times) at one plan. */
+function setBuildFormPlan(planId) {
+  const plan = PLANS.find((p) => p.id === planId);
+  if (!plan) return;
+  document.getElementById('race-distance').value = planDistance(plan).id;
+  populatePlanSelect(planDistance(plan).id);
+  document.getElementById('plan-select').value = planId;
+  onBuildPlanChanged();
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 let selectedEvents = [];
@@ -2120,22 +2450,12 @@ window.addEventListener('load', () => {
   showStep('step-signin');
 
   // Pace dropdown — each selection adds a pace chip; multiple are supported.
+  // Its options follow the selected plan's race distance.
   const paceSelect = document.getElementById('goal-pace');
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = 'Select a pace to add…';
-  paceSelect.appendChild(placeholder);
-  PACE_OPTIONS.forEach((opt) => {
-    const el = document.createElement('option');
-    el.value       = opt.secPerMile;
-    el.textContent = `Finish ${opt.finish}  —  ${formatPace(opt.secPerMile)}`;
-    paceSelect.appendChild(el);
-  });
-  paceSelect.value = '';
   paceSelect.addEventListener('change', () => {
     const val = parseInt(paceSelect.value, 10);
     if (!val) return;
-    const opt = PACE_OPTIONS.find((o) => o.secPerMile === val);
+    const opt = getPaceOptionsForPlan(getSelectedBuildPlan()).find((o) => o.secPerMile === val);
     if (opt && !selectedPaces.some((p) => p.secPerMile === val)) {
       selectedPaces.push(opt);
       renderPaceTags();
@@ -2143,20 +2463,27 @@ window.addEventListener('load', () => {
     paceSelect.value = '';
   });
 
-  // Plan dropdown
-  const planSelect = document.getElementById('plan-select');
-  PLANS.forEach((plan) => {
+  // Race distance → plan dropdown
+  const distanceSelect = document.getElementById('race-distance');
+  RACE_DISTANCES.forEach((d) => {
+    if (!PLANS.some((p) => planDistance(p).id === d.id)) return;
     const el = document.createElement('option');
-    el.value       = plan.id;
-    el.textContent = plan.name;
-    planSelect.appendChild(el);
+    el.value       = d.id;
+    el.textContent = d.label;
+    distanceSelect.appendChild(el);
   });
-  planSelect.addEventListener('change', () => {
-    updatePlanDescription();
-    selectedPaces = [];
-    renderPaceTags();
+  distanceSelect.value = 'marathon';
+  distanceSelect.addEventListener('change', () => {
+    populatePlanSelect(distanceSelect.value);
+    onBuildPlanChanged();
   });
-  updatePlanDescription();
+
+  document.getElementById('race-date-auto').addEventListener('change', applyAutoRaceDate);
+
+  const planSelect = document.getElementById('plan-select');
+  populatePlanSelect('marathon');
+  planSelect.addEventListener('change', onBuildPlanChanged);
+  onBuildPlanChanged();
 
   document.getElementById('bq-category').addEventListener('change', () => {
     const id   = document.getElementById('plan-select').value;
@@ -2383,7 +2710,7 @@ function onPreview() {
   if (!selectedPaces.length) {
     const planId = document.getElementById('plan-select').value;
     const plan   = PLANS.find((p) => p.id === planId);
-    return showError(plan && plan.bqCategories
+    if (!(plan && plan.paceOptional)) return showError(plan && plan.bqCategories
       ? 'Please select your BQ category to set your qualifying pace.'
       : 'Please add at least one goal pace.');
   }
@@ -2392,7 +2719,7 @@ function onPreview() {
   const plan   = PLANS.find((p) => p.id === planId);
 
   selectedEvents = buildEvents(plan, raceDateStr, selectedPaces);
-  saveCurrentPlan(planId, raceDateStr, selectedPaces[0].secPerMile);
+  saveCurrentPlan(planId, raceDateStr, selectedPaces.length ? selectedPaces[0].secPerMile : null);
   updateCurrentPlanNav();
   renderPreview(plan, raceDateStr, selectedPaces, false);
   updateClearButton();
