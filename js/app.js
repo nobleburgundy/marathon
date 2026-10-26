@@ -42,6 +42,13 @@ const STORAGE_CAL_WEEK_START   = 'mp_cal_week_start';
 const STORAGE_LIST_WEEK_START  = 'mp_list_week_start';
 const STORAGE_CURRENTPLAN_VIEW = 'mp_currentplan_view'; // 'calendar' | 'list'
 
+// Home "Today's Plan" — a cached copy of the linked Google Calendar's events
+// for roughly a week either side of the last sync, so today's workout shows
+// on Home without a sign-in every visit (and with or without a chosen plan).
+// JSON {calendarId, fetchedAt, from, to, byDate: {YYYY-MM-DD: [{title, description}]}}
+// where `to` is exclusive.
+const STORAGE_CAL_WORKOUTS = 'mp_cal_workouts';
+
 function getCalWeekStart()  { return localStorage.getItem(STORAGE_CAL_WEEK_START)  || 'sunday'; }
 function getListWeekStart() { return localStorage.getItem(STORAGE_LIST_WEEK_START) || 'monday'; }
 
@@ -505,6 +512,16 @@ function renderHeroForDay(selectedIndex) {
   const paceEl = document.getElementById('today-plan-pace');
   const tipEl  = document.getElementById('today-plan-tip');
 
+  // Today's hero comes from Google Calendar when it's synced — the calendar
+  // is what the runner actually sees and edits, so it wins over the plan.
+  const calWorkouts = isToday ? getCalendarWorkoutsForDate(dateStr) : null;
+  if (calWorkouts) {
+    const extra = renderCalendarHero(calWorkouts);
+    if (extra) document.getElementById('today-plan-week').textContent += ` · ${extra}`;
+    renderTodayWeekChart(weekDays, weekIndex === todayWeekIndex ? todayDayIndex : -1, selectedIndex);
+    return;
+  }
+
   if (day.miles === 0) {
     setTodayHero('REST', '', true);
     typeEl.textContent = 'Rest Day';
@@ -719,7 +736,24 @@ function initTodayWeekSwipe() {
 // active scheduled run today, maps its run type to the heat calculator's
 // intensity buckets — used by the Current Conditions risk chart so its
 // pace-adjustment reflects today's actual workout instead of a neutral read.
+function runTypeToIntensity(type) {
+  switch (type) {
+    case 'race':                    return 'race';
+    case 'tempo': case 'speed': case 'pace': return 'workout';
+    case 'easy':  case 'long':  case 'walk': return 'easy';
+    default:                        return ''; // rest, cross
+  }
+}
+
 function getTodayRunIntensity() {
+  const calWorkouts = getCalendarWorkoutsForDate(toDateStr(new Date()));
+  if (calWorkouts) {
+    if (!calWorkouts.length) return '';
+    const w = pickCalendarWorkout(calWorkouts);
+    // A distance with no recognisable type is most likely an easy run.
+    return w.runType ? runTypeToIntensity(w.runType) : (w.isWorkout ? 'easy' : '');
+  }
+
   const choice = localStorage.getItem(STORAGE_DEFAULT_PLAN_CHOICE);
   if (!choice || choice === 'skip') return '';
 
@@ -730,58 +764,361 @@ function getTodayRunIntensity() {
 
   const result = getPlanDayForDate(plan, setup.raceDate, toDateStr(new Date()));
   if (result.state !== 'active') return '';
+  return runTypeToIntensity(result.day.type);
+}
 
-  switch (result.day.type) {
-    case 'race':                    return 'race';
-    case 'tempo': case 'speed': case 'pace': return 'workout';
-    case 'easy':  case 'long':  case 'walk': return 'easy';
-    default:                        return ''; // rest, cross
+// ── Home screen: today's workout from Google Calendar ─────────────────────────
+
+const CAL_SYNC_DAYS_BACK  = 7;
+const CAL_SYNC_DAYS_AHEAD = 15;
+
+let homeCalendarSyncing  = false;
+let homeCalendarError    = '';
+let homeCalendarPickerOn = false; // signed in from Home with no calendar linked yet
+
+/** True when Home reads a public training calendar via API key (config.js) — no sign-in involved. */
+function usesPublicTrainingCalendar() {
+  return !!(CONFIG.trainingCalendarId && CONFIG.googleApiKey);
+}
+
+/** The calendar Home reads today's workout from. */
+function getLinkedCalendarId() {
+  return usesPublicTrainingCalendar()
+    ? CONFIG.trainingCalendarId
+    : localStorage.getItem(STORAGE_CALENDAR);
+}
+
+function getCalendarWorkoutsCache() {
+  const linked = getLinkedCalendarId();
+  if (!linked) return null;
+  try {
+    const cache = JSON.parse(localStorage.getItem(STORAGE_CAL_WORKOUTS) || 'null');
+    return cache && cache.calendarId === linked && cache.byDate ? cache : null;
+  } catch {
+    return null;
   }
+}
+
+/** True when the synced calendar has anything scheduled today or later (within the synced window). */
+function hasUpcomingCalendarWorkouts() {
+  const cache = getCalendarWorkoutsCache();
+  if (!cache) return false;
+  const todayStr = toDateStr(new Date());
+  return Object.keys(cache.byDate).some((d) => d >= todayStr && cache.byDate[d].length);
+}
+
+/** Calendar events for a date — `null` if the last sync didn't cover that date, `[]` if it did and nothing was scheduled. */
+function getCalendarWorkoutsForDate(dateStr) {
+  const cache = getCalendarWorkoutsCache();
+  if (!cache || dateStr < cache.from || dateStr >= cache.to) return null;
+  return cache.byDate[dateStr] || [];
+}
+
+/** Local dates an event falls on. All-day events can span several days (end date is exclusive). */
+function calendarEventDates(ev) {
+  if (ev.start && ev.start.date) {
+    const dates = [];
+    const end = (ev.end && ev.end.date) || addDays(ev.start.date, 1);
+    for (let d = ev.start.date; d < end && dates.length < 31; d = addDays(d, 1)) dates.push(d);
+    return dates;
+  }
+  if (ev.start && ev.start.dateTime) return [toDateStr(new Date(ev.start.dateTime))];
+  return [];
+}
+
+async function refreshCalendarWorkouts() {
+  const calendarId = getLinkedCalendarId();
+  const isPublic   = usesPublicTrainingCalendar();
+  if (!calendarId || homeCalendarSyncing) return;
+  if (!isPublic && !CalendarAPI.isSignedIn()) return;
+
+  homeCalendarSyncing = true;
+  homeCalendarError   = '';
+  renderTodayPlan();
+
+  try {
+    const todayStr = toDateStr(new Date());
+    const from = addDays(todayStr, -CAL_SYNC_DAYS_BACK);
+    const to   = addDays(todayStr, CAL_SYNC_DAYS_AHEAD);
+    const events = isPublic
+      ? await CalendarAPI.listPublicEventsInRange(calendarId, CONFIG.googleApiKey, from, to)
+      : await CalendarAPI.listEventsInRange(calendarId, from, to);
+
+    const byDate = {};
+    events.forEach((ev) => {
+      if (ev.status === 'cancelled') return;
+      calendarEventDates(ev).forEach((d) => {
+        if (d < from || d >= to) return;
+        (byDate[d] = byDate[d] || []).push({
+          title:       ev.summary || '',
+          description: ev.description || '',
+        });
+      });
+    });
+
+    localStorage.setItem(STORAGE_CAL_WORKOUTS, JSON.stringify({
+      calendarId, fetchedAt: Date.now(), from, to, byDate,
+    }));
+  } catch (err) {
+    console.warn('Could not sync Google Calendar:', err.message);
+    homeCalendarError = /sign-in|signed in|401/i.test(err.message)
+      ? 'Google sign-in expired.'
+      : 'Couldn’t reach Google Calendar.';
+  } finally {
+    homeCalendarSyncing = false;
+    renderTodayPlan();
+  }
+}
+
+const CAL_AUTO_SYNC_MIN_AGE_MS = 5 * 60 * 1000;
+
+/** Syncs without any user action whenever a Google token from an earlier sign-in is still valid (and the last sync is a few minutes old). */
+function autoSyncCalendarWorkouts() {
+  if (!getLinkedCalendarId()) return;
+  if (!usesPublicTrainingCalendar() && !CalendarAPI.isSignedIn()) return;
+  const cache = getCalendarWorkoutsCache();
+  if (cache && Date.now() - cache.fetchedAt < CAL_AUTO_SYNC_MIN_AGE_MS) return;
+  refreshCalendarWorkouts();
+}
+
+/** Home's Sync/Connect button — reuses this session's Google token if there is one, otherwise opens the Google sign-in popup. */
+function onHomeCalendarSync() {
+  if (usesPublicTrainingCalendar()) {
+    refreshCalendarWorkouts();
+    return;
+  }
+  if (CalendarAPI.isSignedIn()) {
+    if (getLinkedCalendarId()) refreshCalendarWorkouts();
+    else showHomeCalendarPicker();
+    return;
+  }
+  if (typeof google === 'undefined' || !google.accounts) {
+    homeCalendarError = 'Google sign-in is still loading — try again in a moment.';
+    renderTodayPlan();
+    return;
+  }
+  homeCalendarError = '';
+  CalendarAPI.init(CONFIG.googleClientId, onHomeSignedIn);
+  CalendarAPI.signIn();
+}
+
+function onHomeSignedIn() {
+  if (getLinkedCalendarId()) refreshCalendarWorkouts();
+  else showHomeCalendarPicker();
+}
+
+/** No calendar linked yet — let the user pick their training calendar right on Home. */
+async function showHomeCalendarPicker() {
+  const sel = document.getElementById('today-cal-select');
+  try {
+    const calendars = await CalendarAPI.listCalendars();
+    sel.innerHTML = '<option value="">Choose your training calendar…</option>';
+    calendars.forEach((cal) => {
+      const opt = document.createElement('option');
+      opt.value = cal.id;
+      opt.textContent = cal.summary + (cal.primary ? ' (primary)' : '');
+      sel.appendChild(opt);
+    });
+    homeCalendarPickerOn = true;
+    homeCalendarError    = '';
+  } catch (err) {
+    console.warn('Could not list calendars:', err.message);
+    homeCalendarError = 'Couldn’t load your calendars.';
+  }
+  renderTodayPlan();
+}
+
+function formatSyncTime(ts) {
+  const d    = new Date(ts);
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return toDateStr(d) === toDateStr(new Date())
+    ? time
+    : `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${time}`;
+}
+
+function renderCalendarSyncRow() {
+  const statusEl = document.getElementById('today-cal-sync-status');
+  const btn      = document.getElementById('btn-today-cal-sync');
+  const sel      = document.getElementById('today-cal-select');
+  const linked   = getLinkedCalendarId();
+  const cache    = getCalendarWorkoutsCache();
+
+  sel.classList.toggle('hidden', !(homeCalendarPickerOn && !linked));
+  btn.classList.remove('hidden');
+
+  if (homeCalendarSyncing) {
+    statusEl.textContent = 'Syncing with Google Calendar…';
+    btn.classList.add('hidden');
+  } else if (!linked && homeCalendarPickerOn) {
+    statusEl.textContent = homeCalendarError || 'Which calendar are your runs on?';
+    btn.classList.add('hidden');
+  } else if (homeCalendarError) {
+    statusEl.textContent = homeCalendarError;
+    btn.textContent = 'Try again';
+  } else if (!linked) {
+    statusEl.textContent = 'See today’s workout from your Google Calendar.';
+    btn.textContent = 'Connect';
+  } else if (cache) {
+    statusEl.textContent = `Synced from Google Calendar · ${formatSyncTime(cache.fetchedAt)}`;
+    btn.textContent = 'Refresh';
+  } else {
+    statusEl.textContent = 'Load today’s workout from Google Calendar.';
+    btn.textContent = 'Sync';
+  }
+}
+
+/** Google Calendar descriptions edited on the web can contain HTML — reduce to plain text lines. */
+function calendarDescriptionToText(desc = '') {
+  if (!/<[a-z][\s\S]*>/i.test(desc)) return desc;
+  const withBreaks = desc.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li)>/gi, '\n');
+  return new DOMParser().parseFromString(withBreaks, 'text/html').body.textContent || '';
+}
+
+const CAL_DISTANCE_RE = /(\d+(?:\.\d+)?)\s*(mi|miles?|km|k)\b/i;
+
+/** Turns a calendar event (one this app created, or one the user typed in) into the pieces of the Home hero. */
+function parseCalendarWorkout(ev) {
+  const title  = (ev.title || '').trim();
+  const text   = calendarDescriptionToText(ev.description).replace(META_RE, '');
+  const tagged = META_RE.test(ev.description || '');
+  const lines  = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  // Run type — this app writes the run-type label as the first description line.
+  const typeByLabel = {};
+  ['easy', 'walk', 'long', 'pace', 'tempo', 'speed', 'race'].forEach((t) => {
+    typeByLabel[runTypeLabel(t).toLowerCase()] = t;
+  });
+  let runType = '';
+  let typeLine = '';
+  if (tagged && lines.length) {
+    typeLine = lines[0];
+    runType  = typeByLabel[typeLine.toLowerCase()] || (/^race day/i.test(typeLine) ? 'race' : '');
+    if (runType === 'race') typeLine = runTypeLabel('race');
+  }
+  if (!runType) {
+    if (/race/i.test(title)) runType = 'race';
+    else if (/\b(rest|off)\b/i.test(title)) runType = 'rest';
+    else {
+      const hit = Object.keys(typeByLabel).find((t) => typeByLabel[t] !== 'race' && new RegExp(`\\b${typeByLabel[t]}\\b`, 'i').test(title));
+      if (hit) runType = typeByLabel[hit];
+    }
+  }
+
+  const paceLines = lines.filter((l) => /^(suggested|goal) pace:/i.test(l));
+  const pace = paceLines.map((l) => l.replace(/^suggested pace:\s*/i, '')).join(' · ');
+  const tip  = lines.filter((l, i) => !(tagged && i === 0) && !paceLines.includes(l)).join(' ');
+
+  const dist = title.match(CAL_DISTANCE_RE);
+  let hero, unit = '', isWord = true, type;
+  if (dist) {
+    hero   = dist[1];
+    unit   = /^k/i.test(dist[2]) ? 'km' : 'mi';
+    isWord = false;
+    const rest = title
+      .replace(CAL_DISTANCE_RE, '')
+      .replace(/^\s*(run|workout)\s*:\s*/i, '')   // "Run: 6 mi …" prefix
+      .replace(/^[\s—–-]+|[\s—–-]+$/g, '')
+      .replace(/\s{2,}/g, ' ');
+    // "5 mi easy" / "6 mi LONG RUN" → "Easy Run" / "Long Run"; anything more
+    // descriptive is kept as typed ("4 mi + 4 strides" → "Run + 4 strides").
+    const restLower = rest.toLowerCase();
+    const restIsJustType = runType &&
+      (restLower === runType || restLower === `${runType} run` || restLower === runTypeLabel(runType).toLowerCase());
+    if (typeLine) type = typeLine;
+    else if (rest && !restIsJustType) type = /^(\+|w\/|with\b)/i.test(rest) ? `Run ${rest}` : rest;
+    else type = runType ? runTypeLabel(runType) : 'Scheduled Run';
+  } else if (runType === 'rest') {
+    hero = 'REST';
+    type = typeLine || title;
+  } else {
+    hero = title && title.length <= 9 ? title.toUpperCase() : 'WORKOUT';
+    type = typeLine || (title.length > 9 ? title : '');
+  }
+
+  return {
+    hero, unit, isWord, type, pace, runType,
+    tip: tip || (runType ? runTypeTip(runType) : ''),
+    isWorkout: !!dist || tagged || !!runType,
+  };
+}
+
+/** Picks the event that looks most like a workout when several share a day. */
+function pickCalendarWorkout(events) {
+  const parsed = events.map(parseCalendarWorkout);
+  const idx = parsed.findIndex((w) => w.isWorkout);
+  return parsed[idx >= 0 ? idx : 0];
+}
+
+/** Fills the Home hero from today's calendar events. Returns a short note to show next to the week label (e.g. "+1 more on calendar"). */
+function renderCalendarHero(events) {
+  const typeEl = document.getElementById('today-plan-type');
+  const paceEl = document.getElementById('today-plan-pace');
+  const tipEl  = document.getElementById('today-plan-tip');
+
+  if (!events.length) {
+    setTodayHero('REST', '', true);
+    typeEl.textContent = 'Nothing on your calendar today';
+    paceEl.textContent = '';
+    tipEl.textContent  = runTypeTip('rest');
+    return '';
+  }
+
+  const w = pickCalendarWorkout(events);
+  setTodayHero(w.hero, w.unit, w.isWord);
+  typeEl.textContent = w.type;
+  paceEl.textContent = w.pace;
+  tipEl.textContent  = w.tip;
+  return events.length > 1 ? `+${events.length - 1} more on calendar` : '';
 }
 
 function renderTodayPlan() {
   const chooser  = document.getElementById('default-plan-chooser');
   const widget   = document.getElementById('today-plan');
   const skipLink = document.getElementById('show-default-plan-link');
-  const choice   = localStorage.getItem(STORAGE_DEFAULT_PLAN_CHOICE);
+  let   choice   = localStorage.getItem(STORAGE_DEFAULT_PLAN_CHOICE);
 
   updateCurrentPlanNav();
 
-  // Never decided yet — show the chooser, nothing else.
-  if (!choice) {
-    chooser.classList.remove('hidden');
-    widget.classList.add('hidden');
-    skipLink.classList.add('hidden');
-    return;
+  let plan  = null;
+  let setup = null;
+  if (choice && choice !== 'skip') {
+    plan = PLANS.find((p) => p.id === choice);
+    const setupRaw = localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP);
+    setup = setupRaw ? JSON.parse(setupRaw) : null;
+    if (!plan || !setup || !setup.raceDate) {
+      // Corrupted/missing local storage — reset back to the chooser.
+      localStorage.removeItem(STORAGE_DEFAULT_PLAN_CHOICE);
+      localStorage.removeItem(STORAGE_DEFAULT_PLAN_SETUP);
+      choice = null;
+      plan   = null;
+      setup  = null;
+    }
   }
 
-  if (choice === 'skip') {
-    chooser.classList.add('hidden');
-    widget.classList.add('hidden');
-    skipLink.classList.remove('hidden');
-    return;
-  }
+  // The widget shows whenever there's a default plan OR a Google Calendar to
+  // read today's workout from — so Home still shows today's run with no plan
+  // chosen, before a plan starts, or after it's over.
+  const calendarOn = !!getLinkedCalendarId() || CalendarAPI.isSignedIn();
+  const showWidget = !!plan || calendarOn;
 
-  const plan      = PLANS.find((p) => p.id === choice);
-  const setupRaw  = localStorage.getItem(STORAGE_DEFAULT_PLAN_SETUP);
-  const setup     = setupRaw ? JSON.parse(setupRaw) : null;
+  // The "Select Default Marathon Plan" prompt is only useful when there's
+  // nothing else to show — skip it while the connected calendar has runs
+  // coming up (and during the first sync, so it doesn't flash in and out).
+  const calendarCovered = hasUpcomingCalendarWorkouts() ||
+    (homeCalendarSyncing && !getCalendarWorkoutsCache());
+  chooser.classList.toggle('hidden', !!choice || calendarCovered);
+  skipLink.classList.toggle('hidden', choice !== 'skip');
+  document.getElementById('btn-today-cal-connect').classList.toggle('hidden', calendarOn);
+  widget.classList.toggle('hidden', !showWidget);
+  todayWeekChartState = null;
+  if (!showWidget) return;
 
-  if (!plan || !setup || !setup.raceDate) {
-    // Corrupted/missing local storage — reset back to the chooser.
-    localStorage.removeItem(STORAGE_DEFAULT_PLAN_CHOICE);
-    localStorage.removeItem(STORAGE_DEFAULT_PLAN_SETUP);
-    chooser.classList.remove('hidden');
-    widget.classList.add('hidden');
-    skipLink.classList.add('hidden');
-    return;
-  }
+  document.getElementById('btn-goto-settings').classList.toggle('hidden', !plan);
+  renderCalendarSyncRow();
 
-  chooser.classList.add('hidden');
-  skipLink.classList.add('hidden');
-  widget.classList.remove('hidden');
-
-  const todayStr = toDateStr(new Date());
-  const result   = getPlanDayForDate(plan, setup.raceDate, todayStr);
+  const todayStr    = toDateStr(new Date());
+  const calWorkouts = getCalendarWorkoutsForDate(todayStr);
+  const result      = plan ? getPlanDayForDate(plan, setup.raceDate, todayStr) : null;
 
   const typeEl  = document.getElementById('today-plan-type');
   const paceEl  = document.getElementById('today-plan-pace');
@@ -791,39 +1128,50 @@ function renderTodayPlan() {
 
   document.getElementById('today-plan-label-text').textContent = 'Today’s Plan';
   document.getElementById('today-plan-date-suffix').textContent = ' — ' + formatDisplayDate(todayStr);
-  todayWeekChartState = null;
 
-  if (result.state === 'before') {
-    setTodayHero('SOON', '', true);
-    typeEl.textContent = `${plan.name} starts ${formatDisplayDate(result.startDateStr)}`;
-    paceEl.textContent = '';
-    weekEl.textContent = '';
-    tipEl.textContent  = '';
-    weekChartEl.classList.add('hidden');
+  if (result && result.state === 'active') {
+    const { totalWeeks, dayIndex } = result;
+    const TOTAL_DAYS       = plan.schedule.length * 7;
+    const planStartDateStr = addDays(setup.raceDate, -(TOTAL_DAYS - 1));
+
+    todayWeekChartState = {
+      plan, planStartDateStr, totalWeeks,
+      todayWeekIndex: result.week - 1, todayDayIndex: dayIndex,
+      todayStr, setup,
+      weekIndex: result.week - 1, selectedDayIndex: dayIndex,
+    };
+    renderHeroForDay(dayIndex);
     return;
   }
 
-  if (result.state === 'after') {
+  weekChartEl.classList.add('hidden');
+
+  // Plan status (if any) goes in the small meta line when the calendar is
+  // driving the hero, or takes over the hero itself when it isn't.
+  let planNote = '';
+  if (result && result.state === 'before') planNote = `${plan.name} starts ${formatDisplayDate(result.startDateStr)}`;
+  if (result && result.state === 'after')  planNote = `${plan.name} complete`;
+
+  if (calWorkouts) {
+    const extra = renderCalendarHero(calWorkouts);
+    weekEl.textContent = [planNote, extra].filter(Boolean).join(' · ');
+    return;
+  }
+
+  paceEl.textContent = '';
+  weekEl.textContent = '';
+  tipEl.textContent  = '';
+
+  if (result && result.state === 'before') {
+    setTodayHero('SOON', '', true);
+    typeEl.textContent = planNote;
+  } else if (result && result.state === 'after') {
     setTodayHero('DONE', '', true);
     typeEl.textContent = 'Race complete — nice work!';
-    paceEl.textContent = '';
-    weekEl.textContent = '';
-    tipEl.textContent  = '';
-    weekChartEl.classList.add('hidden');
-    return;
+  } else {
+    setTodayHero('—', '', true);
+    typeEl.textContent = homeCalendarSyncing ? 'Loading today’s workout…' : 'No workout loaded yet';
   }
-
-  const { totalWeeks, dayIndex } = result;
-  const TOTAL_DAYS       = plan.schedule.length * 7;
-  const planStartDateStr = addDays(setup.raceDate, -(TOTAL_DAYS - 1));
-
-  todayWeekChartState = {
-    plan, planStartDateStr, totalWeeks,
-    todayWeekIndex: result.week - 1, todayDayIndex: dayIndex,
-    todayStr, setup,
-    weekIndex: result.week - 1, selectedDayIndex: dayIndex,
-  };
-  renderHeroForDay(dayIndex);
 }
 
 // ── Current Plan page ─────────────────────────────────────────────────────────
@@ -1885,6 +2233,7 @@ window.addEventListener('load', () => {
       const calendarId = e.target.value;
       if (!calendarId) return;
       localStorage.setItem(STORAGE_CALENDAR, calendarId);
+      refreshCalendarWorkouts();
       savedEventIds = [];
       updateClearButton();
       const found = await searchExistingPlan(calendarId);
@@ -1922,7 +2271,30 @@ window.addEventListener('load', () => {
 
   document.getElementById('btn-goto-settings').addEventListener('click', () => switchTab('settings'));
 
+  document.getElementById('btn-today-cal-sync').addEventListener('click', onHomeCalendarSync);
+  document.getElementById('btn-today-cal-connect').addEventListener('click', onHomeCalendarSync);
+  document.getElementById('today-cal-select').addEventListener('change', (e) => {
+    if (!e.target.value) return;
+    localStorage.setItem(STORAGE_CALENDAR, e.target.value);
+    homeCalendarPickerOn = false;
+    refreshCalendarWorkouts();
+  });
+
   renderTodayPlan();
+  autoSyncCalendarWorkouts();
+
+  // Coming back to the app (switching tabs, reopening the home-screen app)
+  // re-syncs if the last sync is stale, and picks up a new day at midnight.
+  let lastRenderedDay = toDateStr(new Date());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    const todayStr = toDateStr(new Date());
+    if (todayStr !== lastRenderedDay) {
+      lastRenderedDay = todayStr;
+      renderTodayPlan();
+    }
+    autoSyncCalendarWorkouts();
+  });
   initTodayWeekSwipe();
   document.getElementById('btn-back-to-today').addEventListener('click', jumpToTodayWeek);
   document.getElementById('btn-prev-week').addEventListener('click', () => slideToWeek(-1));
@@ -1988,6 +2360,10 @@ async function onSignedIn() {
 
     // Search selected calendar for an existing plan.
     const calendarId = sel.value;
+    if (calendarId && !localStorage.getItem(STORAGE_CALENDAR)) {
+      localStorage.setItem(STORAGE_CALENDAR, calendarId);
+    }
+    refreshCalendarWorkouts();
     if (calendarId) {
       const found = await searchExistingPlan(calendarId);
       if (!found) showStep('step-configure');
@@ -2049,6 +2425,7 @@ async function onAddToCalendar() {
     savedCalendarId = calendarId;
     savedEventIds   = ids;
     updateClearButton();
+    refreshCalendarWorkouts();
 
     showStep('step-done');
   } catch (err) {
@@ -2086,6 +2463,7 @@ async function onClearPlan() {
     document.getElementById('plan-summary').innerHTML = '';
     document.getElementById('plan-preview').innerHTML = '';
     updateClearButton();
+    refreshCalendarWorkouts();
     showStep('step-configure');
   } catch (err) {
     showStep('step-preview');

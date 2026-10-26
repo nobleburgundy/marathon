@@ -11,6 +11,35 @@ const CalendarAPI = (() => {
   let tokenClient = null;
   let accessToken  = null;
 
+  // The access token is kept in localStorage (with its expiry) so reloading
+  // or relaunching the app within the token's ~1 hour lifetime syncs
+  // automatically instead of needing another Google popup.
+  const TOKEN_KEY = 'mp_gcal_token';
+
+  function restoreToken() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(TOKEN_KEY) || 'null');
+      if (saved && saved.token && saved.expiresAt > Date.now() + 60000) {
+        accessToken = saved.token;
+      }
+    } catch { /* storage unavailable — just sign in again */ }
+  }
+
+  function saveToken(token, expiresInSec) {
+    try {
+      localStorage.setItem(TOKEN_KEY, JSON.stringify({
+        token, expiresAt: Date.now() + (Number(expiresInSec) || 3600) * 1000,
+      }));
+    } catch { /* ignore */ }
+  }
+
+  function clearToken() {
+    accessToken = null;
+    try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
+  }
+
+  restoreToken();
+
   // ── Auth ───────────────────────────────────────────────────────────────────
 
   function init(clientId, onSignedIn) {
@@ -23,7 +52,8 @@ const CalendarAPI = (() => {
           return;
         }
         accessToken = response.access_token;
-        onSignedIn();
+        saveToken(accessToken, response.expires_in);
+        if (onSignedIn) onSignedIn();
       },
     });
   }
@@ -49,13 +79,24 @@ const CalendarAPI = (() => {
     });
 
     if (res.status === 401) {
-      await new Promise((resolve) => {
+      // Token expired or revoked. Clear it first so the wait below actually
+      // waits for a *new* token rather than resolving on the stale one.
+      clearToken();
+      if (!tokenClient || retries <= 0) {
+        throw new Error('Google sign-in expired — please sign in again.');
+      }
+      await new Promise((resolve, reject) => {
         tokenClient.requestAccessToken({ prompt: '' });
+        const started = Date.now();
         const check = setInterval(() => {
           if (accessToken) { clearInterval(check); resolve(); }
+          else if (Date.now() - started > 120000) {
+            clearInterval(check);
+            reject(new Error('Google sign-in timed out.'));
+          }
         }, 500);
       });
-      return apiFetch(path, options, retries, backoff);
+      return apiFetch(path, options, retries - 1, backoff);
     }
 
     // 204 No Content (DELETE), 404/410 (already deleted) are all fine.
@@ -116,6 +157,46 @@ const CalendarAPI = (() => {
     const data = await apiFetch(
       `/calendars/${encodeURIComponent(calendarId)}/events?${params}`
     );
+    return data.items || [];
+  }
+
+  /**
+   * All events on a calendar between two dates (YYYY-MM-DD, end exclusive),
+   * expanded so recurring events show up as individual days.
+   */
+  async function listEventsInRange(calendarId, startDateStr, endDateStr) {
+    const params = new URLSearchParams({
+      singleEvents: 'true',
+      orderBy:      'startTime',
+      maxResults:   '250',
+      timeMin:      new Date(startDateStr + 'T00:00:00').toISOString(),
+      timeMax:      new Date(endDateStr + 'T00:00:00').toISOString(),
+    });
+    const data = await apiFetch(
+      `/calendars/${encodeURIComponent(calendarId)}/events?${params}`
+    );
+    return data.items || [];
+  }
+
+  /**
+   * Same as listEventsInRange, but for a PUBLIC calendar read with an API
+   * key — no sign-in needed. Plain GET with no custom headers, so the
+   * browser doesn't need a CORS preflight.
+   */
+  async function listPublicEventsInRange(calendarId, apiKey, startDateStr, endDateStr) {
+    const params = new URLSearchParams({
+      key:          apiKey,
+      singleEvents: 'true',
+      orderBy:      'startTime',
+      maxResults:   '250',
+      timeMin:      new Date(startDateStr + 'T00:00:00').toISOString(),
+      timeMax:      new Date(endDateStr + 'T00:00:00').toISOString(),
+    });
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`
+    );
+    if (!res.ok) throw new Error(`Calendar API error ${res.status}: ${await res.text()}`);
+    const data = await res.json();
     return data.items || [];
   }
 
@@ -203,9 +284,11 @@ const CalendarAPI = (() => {
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
   return {
-    init, signIn, isSignedIn,
+    init, signIn, isSignedIn, clearToken,
     listCalendars,
     searchMarathonEvents,
+    listEventsInRange,
+    listPublicEventsInRange,
     createEvents,
     deleteEvents,
   };

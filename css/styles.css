@@ -397,6 +397,10 @@ html, body {
 /* ── Re-entry link (shown after "Skip") ──────────────────────────────────────*/
 
 .show-default-plan-link {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
   margin-bottom: 56px;
 }
 
@@ -472,6 +476,12 @@ html, body {
   margin-bottom: 16px;
 }
 
+/* Calendar events often fill only some of type/pace/week — skip the empty
+   ones so the flex gap doesn't leave a stray indent. */
+.today-plan-meta > :empty {
+  display: none;
+}
+
 .today-plan-type {
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
@@ -496,6 +506,25 @@ html, body {
      without this the "This Week" grid below shifts a few px on every
      day click depending on whether that day's tip wraps to 1 or 2 lines. */
   min-height: calc(1.6em * 2);
+}
+
+/* Google Calendar sync status under the hero — quiet, one line. */
+.today-cal-sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-top: 16px;
+}
+
+.today-cal-sync-status {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.today-cal-select {
+  max-width: 100%;
 }
 
 /* ── Today's plan: 7-day week chart ──────────────────────────────────────────*/

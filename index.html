@@ -73,6 +73,7 @@
         <!-- Re-entry point for users who previously chose "Skip" -->
         <div id="show-default-plan-link" class="show-default-plan-link hidden">
           <button type="button" class="link-btn" id="btn-show-default-plan-picker">Show a default training plan on Home &rarr;</button>
+          <button type="button" class="link-btn" id="btn-today-cal-connect">Show today&rsquo;s workout from Google Calendar &rarr;</button>
         </div>
 
         <!-- Today's plan hero (once a default plan is configured) -->
@@ -90,6 +91,13 @@
                 <span class="today-plan-week" id="today-plan-week"></span>
               </div>
               <p class="today-plan-tip" id="today-plan-tip"></p>
+            </div>
+
+            <!-- Google Calendar sync status — today's hero reads from the linked calendar when synced -->
+            <div class="today-cal-sync" id="today-cal-sync">
+              <span class="today-cal-sync-status" id="today-cal-sync-status"></span>
+              <select id="today-cal-select" class="field today-cal-select hidden" aria-label="Training calendar"></select>
+              <button type="button" class="link-btn" id="btn-today-cal-sync">Sync</button>
             </div>
 
             <div id="today-week-chart" class="today-week-chart hidden">
