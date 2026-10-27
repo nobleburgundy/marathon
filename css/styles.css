@@ -596,7 +596,7 @@ html, body {
 
 .week-cal {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr)); /* equal squares, even with long labels */
   gap: 6px;
   /* Home's week-cal is swipeable (prev/next week) — reserve horizontal
      panning for our own touch handler, leave vertical page scroll native. */
@@ -646,6 +646,13 @@ html, body {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+/* Longer labels ("Rest/Cross") wrap onto two lines instead of widening the square. */
+.week-cal-type-wrap {
+  white-space: normal;
+  text-align: center;
+  line-height: 1.2;
 }
 
 /* Effort-based scheme: green = easy effort, orange = moderate/controlled

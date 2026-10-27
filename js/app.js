@@ -553,7 +553,7 @@ function renderTodayWeekChart(weekDays, todayDayIndex, selectedDayIndex) {
       <button type="button" class="${classes.join(' ')}" data-day-index="${i}" aria-pressed="${i === selectedDayIndex}"${ariaCurrent}>
         <span class="week-cal-daylabel">${WEEK_DAY_LABELS[i]}</span>
         <span class="week-cal-miles">${dayShort(d)}</span>
-        <span class="week-cal-type week-cal-type-${d.type}">${WEEK_CAL_TYPE_LABEL[d.type] || d.type}</span>
+        <span class="week-cal-type week-cal-type-${d.type}${d.chartLabel ? ' week-cal-type-wrap' : ''}">${d.chartLabel || WEEK_CAL_TYPE_LABEL[d.type] || d.type}</span>
       </button>`;
   }).join('');
 
@@ -580,6 +580,7 @@ function renderHeroForDay(selectedIndex) {
   const ctx = todayWeekChartState;
   if (!ctx) return;
   ctx.selectedDayIndex = selectedIndex;
+  if (ctx.mode === 'calendar') { renderCalendarHeroForDay(selectedIndex); return; }
 
   const { plan, planStartDateStr, totalWeeks, todayWeekIndex, todayDayIndex, weekIndex, setup } = ctx;
   const weekDays = plan.schedule[weekIndex];
@@ -634,6 +635,70 @@ function renderHeroForDay(selectedIndex) {
   paceEl.textContent = typePace ? formatPace(typePace) : '';
 
   renderTodayWeekChart(weekDays, weekIndex === todayWeekIndex ? todayDayIndex : -1, selectedIndex);
+}
+
+/** Sets the "Today's Plan / Wednesday's Plan" header and the week strip's label + nav buttons. */
+function setWeekHeader(dateStr, weekStartStr, isToday, selectedIndex) {
+  const ctx = todayWeekChartState;
+  document.getElementById('today-plan-label-text').textContent =
+    isToday ? 'Today’s Plan' : `${WEEK_DAY_LABELS_FULL[selectedIndex]}’s Plan`;
+  document.getElementById('today-plan-date-suffix').textContent = ' — ' + formatDisplayDate(dateStr);
+  document.getElementById('today-week-label-text').textContent = ctx.weekIndex === ctx.todayWeekIndex
+    ? 'This Week'
+    : `${formatShortDate(weekStartStr)} – ${formatShortDate(addDays(weekStartStr, 6))}`;
+  document.getElementById('btn-back-to-today').classList.toggle('hidden', ctx.weekIndex === ctx.todayWeekIndex);
+  document.getElementById('btn-prev-week').disabled = ctx.weekIndex <= 0;
+  document.getElementById('btn-next-week').disabled = ctx.weekIndex >= ctx.totalWeeks - 1;
+}
+
+// ── Home week strip from Google Calendar (no active training plan) ───────────
+
+function mondayOf(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return addDays(dateStr, -((d.getDay() + 6) % 7));
+}
+
+/** One week-strip square from a day's calendar events: its run, or "Rest/Cross" when there's no run. */
+function calendarChartDay(dateStr) {
+  const REST = { miles: 0, type: 'rest', chartLabel: 'Rest/\u200BCross' }; // zero-width space lets it break after the slash
+  const events = getCalendarWorkoutsForDate(dateStr) || [];
+  if (!events.length) return REST;
+  const w = pickCalendarWorkout(events);
+  if (!w.isWorkout || w.runType === 'rest') return REST;
+  const miles = w.isWord ? 0 : Number(w.hero) * (w.unit === 'km' ? 0.621371 : 1);
+  return { miles: Math.round(miles * 10) / 10, type: w.runType || 'easy' };
+}
+
+/** Builds the week-strip state from the synced calendar: weeks run Monday–Sunday across the synced window. */
+function buildCalendarWeekState(todayStr, note) {
+  const cache = getCalendarWorkoutsCache();
+  if (!cache) return null;
+  const gridStartStr = addDays(mondayOf(cache.from), mondayOf(cache.from) < cache.from ? 7 : 0);
+  const totalWeeks   = Math.floor(daysBetweenStr(gridStartStr, cache.to) / 7);
+  const todayWeekIndex = daysBetweenStr(gridStartStr, mondayOf(todayStr)) / 7;
+  if (todayWeekIndex < 0 || todayWeekIndex >= totalWeeks) return null;
+  const todayDayIndex = daysBetweenStr(mondayOf(todayStr), todayStr);
+  return {
+    mode: 'calendar', gridStartStr, totalWeeks, note,
+    todayWeekIndex, todayDayIndex,
+    weekIndex: todayWeekIndex, selectedDayIndex: todayDayIndex,
+  };
+}
+
+function renderCalendarHeroForDay(selectedIndex) {
+  const ctx = todayWeekChartState;
+  const weekStartStr = addDays(ctx.gridStartStr, ctx.weekIndex * 7);
+  const dateStr      = addDays(weekStartStr, selectedIndex);
+  const isToday      = ctx.weekIndex === ctx.todayWeekIndex && selectedIndex === ctx.todayDayIndex;
+
+  setWeekHeader(dateStr, weekStartStr, isToday, selectedIndex);
+
+  const extra = renderCalendarHero(getCalendarWorkoutsForDate(dateStr) || [], isToday);
+  document.getElementById('today-plan-week').textContent =
+    [isToday ? ctx.note : '', extra].filter(Boolean).join(' · ');
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => calendarChartDay(addDays(weekStartStr, i)));
+  renderTodayWeekChart(weekDays, ctx.weekIndex === ctx.todayWeekIndex ? ctx.todayDayIndex : -1, selectedIndex);
 }
 
 /** Moves the week chart to the previous (-1) or next (+1) week of the plan, keeping the same weekday selected — clamps at the plan's first/last week. Triggered by swiping on mobile. */
@@ -867,8 +932,8 @@ function getTodayRunIntensity() {
 
 // ── Home screen: today's workout from Google Calendar ─────────────────────────
 
-const CAL_SYNC_DAYS_BACK  = 7;
-const CAL_SYNC_DAYS_AHEAD = 15;
+const CAL_SYNC_DAYS_BACK  = 14; // covers all of last week for the week strip
+const CAL_SYNC_DAYS_AHEAD = 70; // ~10 weeks, so Home's week strip can page ahead
 
 let homeCalendarSyncing  = false;
 let homeCalendarError    = '';
@@ -1148,14 +1213,14 @@ function pickCalendarWorkout(events) {
 }
 
 /** Fills the Home hero from today's calendar events. Returns a short note to show next to the week label (e.g. "+1 more on calendar"). */
-function renderCalendarHero(events) {
+function renderCalendarHero(events, isToday = true) {
   const typeEl = document.getElementById('today-plan-type');
   const paceEl = document.getElementById('today-plan-pace');
   const tipEl  = document.getElementById('today-plan-tip');
 
   if (!events.length) {
     setTodayHero('REST', '', true);
-    typeEl.textContent = 'Nothing on your calendar today';
+    typeEl.textContent = isToday ? 'Nothing on your calendar today' : 'Nothing on your calendar';
     paceEl.textContent = '';
     tipEl.textContent  = runTypeTip('rest');
     return '';
@@ -1251,8 +1316,13 @@ function renderTodayPlan() {
   if (result && result.state === 'after')  planNote = `${plan.name} complete`;
 
   if (calWorkouts) {
-    const extra = renderCalendarHero(calWorkouts);
-    weekEl.textContent = [planNote, extra].filter(Boolean).join(' · ');
+    todayWeekChartState = buildCalendarWeekState(todayStr, planNote);
+    if (todayWeekChartState) {
+      renderHeroForDay(todayWeekChartState.todayDayIndex);
+    } else {
+      const extra = renderCalendarHero(calWorkouts);
+      weekEl.textContent = [planNote, extra].filter(Boolean).join(' · ');
+    }
     return;
   }
 
